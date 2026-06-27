@@ -53,12 +53,37 @@ services:
       - "${ORBITAL_PORT:-8088}:80"
 COMPOSE
 
+# A no-compose deploy script: bind-mounts the page into a stock nginx.
+# Removes any existing container first, so it's safe to re-run for updates.
+cat > "$OUT/run.sh" <<'RUN'
+#!/usr/bin/env bash
+# Deploy Orbital with a stock nginx, bind-mounting the page (no build, no compose).
+#   ./run.sh        start (or restart) the container
+# Override: ORBITAL_PORT (8088), ORBITAL_NAME (orbital), ORBITAL_IMAGE (nginx:1.27-alpine)
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+NAME="${ORBITAL_NAME:-orbital}"
+PORT="${ORBITAL_PORT:-8088}"
+IMAGE="${ORBITAL_IMAGE:-nginx:1.27-alpine}"
+
+echo "› Removing any existing '$NAME' container ..."
+docker rm -f "$NAME" >/dev/null 2>&1 || true
+
+echo "› Starting '$NAME' on port $PORT ..."
+docker run -d --name "$NAME" --restart unless-stopped -p "$PORT:80" \
+  -v "$DIR/index.html:/usr/share/nginx/html/index.html:ro" \
+  -v "$DIR/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+  "$IMAGE" >/dev/null
+
+echo "✓ Running → http://localhost:$PORT  (or http://<host-ip>:$PORT)"
+docker ps --filter "name=$NAME" --format '   {{.Names}}: {{.Status}}  {{.Ports}}'
+RUN
+chmod +x "$OUT/run.sh"
+
 echo "✓ Runtime bundle ready ($(find "$OUT" -type f | wc -l | tr -d ' ') files):"
 find "$OUT" -type f | sort | sed 's/^/    /'
 echo
 echo "Deploy on the target host (copy the folder over, then):"
+echo "    cd $OUT && ./run.sh          # no compose needed; safe to re-run"
+echo "  or, if you have the Compose plugin:"
 echo "    cd $OUT && docker compose up -d"
-echo "Or without building an image (pure bind-mount):"
-echo "    docker run -d --name orbital --restart unless-stopped -p 8088:80 \\"
-echo "      -v \"\$PWD/index.html:/usr/share/nginx/html/index.html:ro\" \\"
-echo "      -v \"\$PWD/nginx.conf:/etc/nginx/conf.d/default.conf:ro\" nginx:1.27-alpine"
