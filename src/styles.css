@@ -142,6 +142,14 @@ select.sel {
 #readout .sep { height: 1px; background: var(--panel-border); margin: 7px 0; }
 #readout .dim { color: var(--text-dim); }
 
+/* elapsed-time counter (bottom-left) */
+#dayclock {
+  position: fixed; bottom: 14px; left: 14px; z-index: 10;
+  background: var(--panel); border: 1px solid var(--panel-border); border-radius: 10px;
+  padding: 7px 12px; font-size: 12px; color: var(--text); font-weight: 600;
+  backdrop-filter: blur(14px); font-variant-numeric: tabular-nums;
+}
+
 /* tooltip on hover over planet */
 #tip {
   position: fixed; z-index: 12; pointer-events: none; display: none;
@@ -184,4 +192,5 @@ select.sel {
     font-size: 11px; line-height: 1.6; max-width: 62vw;
   }
   #readout .astro { width: 34px; height: 34px; }
+  #dayclock { bottom: 10px; left: 10px; font-size: 11px; padding: 6px 10px; }
 }

@@ -84,6 +84,7 @@ const BODY = `
 
 <div id="buildinfo">Generated from TypeScript · vanilla JS + Canvas<br>Compiled __BUILT_AT__</div>
 <div id="readout"></div>
+<div id="dayclock"></div>
 <div id="tip"></div>`;
 
 export function renderHTML({ css, js, builtAt }: RenderInput): string {

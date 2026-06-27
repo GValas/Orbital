@@ -54,6 +54,8 @@
   // ----------------------------------------------------------------
   const AU = 90;        // pixels per AU at zoom 1 (compressed view)
   const BASE_G = 2600;  // tuned so circular orbits look good at this scale
+  // Earth's orbital period in sim-seconds (at default G) — 1 year = 365.25 days.
+  const EARTH_YEAR_SIM = 2 * Math.PI * Math.sqrt(Math.pow(1.10 * AU, 3) / (BASE_G * 333000));
 
   // Moons are listed immediately after their parent planet; `parent` is the
   // 0-based index of another row, so order matters (a parent must precede its
@@ -89,6 +91,7 @@
   let REAL_SCALE = false;
   let paused = false;
   let collisions = true;                  // merge bodies on contact
+  let simTime = 0;                        // total elapsed simulation time (sim-seconds)
 
   function makeBodies(): void {
     bodies = DEFS.map((d, i): Body => ({
@@ -165,7 +168,7 @@
           name + " " + String.fromCharCode(97 + mn), true));
       }
     }
-    cam.focus = 0; selected = 0; followSuspended = false;
+    cam.focus = 0; selected = 0; simTime = 0; followSuspended = false;
     belt = []; oort = [];   // a random system has no predefined belts
     buildFocusList();
   }
@@ -570,10 +573,19 @@
     }
 
     drawReadout();
+    updateDayClock();
   }
 
   // --------------------------- Readout -----------------------------
   const readoutEl = $("readout");
+  const dayEl = $("dayclock");
+
+  function updateDayClock(): void {
+    const days = (simTime / EARTH_YEAR_SIM) * 365.25;
+    const whole = Math.floor(days).toLocaleString("en-US");
+    const yr = days / 365.25;
+    dayEl.textContent = yr >= 2 ? `🌍 ${whole} days · ${yr.toFixed(1)} yr` : `🌍 ${whole} days`;
+  }
   function fmtMass(m: number): string {
     if (m >= 1000) return (m / 1000).toFixed(0) + "k";
     if (m >= 1) return m.toFixed(m < 10 ? 2 : 0);
@@ -652,6 +664,7 @@
 
     if (!paused && TIME_SCALE > 0) {
       const simDt = dt * TIME_SCALE;
+      simTime += simDt;
       const sub = Math.min(40, Math.max(1, Math.ceil(TIME_SCALE)));
       const h = simDt / sub;
       for (let s = 0; s < sub; s++) step(h);
@@ -743,6 +756,7 @@
     if (paused) pauseBtn.click();         // resume if paused
     cam.focus = 0;                        // Sun
     selected = 0;
+    simTime = 0;
     followSuspended = false;
     makeBodies();
     buildFocusList();
