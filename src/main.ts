@@ -358,8 +358,79 @@
       });
     }
   }
+  // Background nebulae (gas clouds) + distant spiral galaxies — animated,
+  // screen-space, drawn additively so they glow over the near-black sky.
+  interface Nebula { x: number; y: number; r: number; col: [number, number, number]; ph: number; drift: number; }
+  interface Galaxy { x: number; y: number; r: number; rotSpeed: number; phase: number; hue: [number, number, number]; }
+  let nebulae: Nebula[] = [];
+  let galaxies: Galaxy[] = [];
+
+  function makeBackground(): void {
+    const clouds: [number, number, number][] =
+      [[120, 80, 200], [60, 110, 200], [40, 160, 170], [200, 70, 150], [90, 70, 185]];
+    nebulae = [];
+    for (let i = 0; i < 5; i++) {
+      nebulae.push({
+        x: Math.random() * W, y: Math.random() * H, r: 190 + Math.random() * 330,
+        col: clouds[i % clouds.length], ph: Math.random() * Math.PI * 2, drift: 16 + Math.random() * 26,
+      });
+    }
+    const hues: [number, number, number][] = [[180, 200, 255], [255, 212, 180], [210, 190, 255]];
+    galaxies = [];
+    const g = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < g; i++) {
+      galaxies.push({
+        x: Math.random() * W, y: Math.random() * H, r: 42 + Math.random() * 58,
+        rotSpeed: (0.00006 + Math.random() * 0.0002) * (Math.random() < 0.5 ? -1 : 1),
+        phase: Math.random() * Math.PI * 2, hue: hues[i % hues.length],
+      });
+    }
+  }
+
+  function drawGalaxy(x: number, y: number, r: number, rot: number, hue: [number, number, number]): void {
+    const [hr, hg, hb] = hue;
+    ctx.save();
+    ctx.translate(x, y); ctx.rotate(rot); ctx.scale(1, 0.5);  // tilt the disk
+    const disk = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+    disk.addColorStop(0, `rgba(${hr},${hg},${hb},0.16)`);
+    disk.addColorStop(0.45, `rgba(${hr},${hg},${hb},0.05)`);
+    disk.addColorStop(1, `rgba(${hr},${hg},${hb},0)`);
+    ctx.fillStyle = disk; ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill();
+    ctx.fillStyle = `rgba(${hr},${hg},${hb},0.16)`;            // two spiral arms
+    for (let arm = 0; arm < 2; arm++) {
+      for (let t = 0; t < 1; t += 0.05) {
+        const ang = arm * Math.PI + t * 4.4, rr = r * (0.12 + t * 0.9), sz = 1.6 * (1 - t) + 0.4;
+        ctx.beginPath(); ctx.arc(Math.cos(ang) * rr, Math.sin(ang) * rr, sz, 0, 7); ctx.fill();
+      }
+    }
+    ctx.restore();
+    const core = ctx.createRadialGradient(x, y, 0, x, y, r * 0.42);  // bright round core
+    core.addColorStop(0, "rgba(255,255,255,0.5)");
+    core.addColorStop(0.4, `rgba(${hr},${hg},${hb},0.22)`);
+    core.addColorStop(1, `rgba(${hr},${hg},${hb},0)`);
+    ctx.fillStyle = core; ctx.beginPath(); ctx.arc(x, y, r * 0.42, 0, 7); ctx.fill();
+  }
+
+  function drawBackground(time: number): void {
+    ctx.globalCompositeOperation = "lighter";
+    for (const n of nebulae) {
+      const cx = n.x + Math.cos(time * 0.00005 + n.ph) * n.drift;
+      const cy = n.y + Math.sin(time * 0.00007 + n.ph * 1.3) * n.drift;
+      const r = n.r * (0.85 + 0.15 * Math.sin(time * 0.0003 + n.ph));
+      const [cr, cg, cb] = n.col;
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      grad.addColorStop(0, `rgba(${cr},${cg},${cb},0.10)`);
+      grad.addColorStop(0.5, `rgba(${cr},${cg},${cb},0.035)`);
+      grad.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+      ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill();
+    }
+    for (const gx of galaxies) drawGalaxy(gx.x, gx.y, gx.r, gx.phase + time * gx.rotSpeed, gx.hue);
+    ctx.globalCompositeOperation = "source-over";
+  }
+
   makeStars();
-  window.addEventListener("resize", makeStars);
+  makeBackground();
+  window.addEventListener("resize", () => { makeStars(); makeBackground(); });
 
   let showTrails = true, showOrbits = false, showLabels = true, showRings = true;
 
@@ -385,6 +456,8 @@
   function draw(time: number): void {
     ctx.fillStyle = "#05060d";
     ctx.fillRect(0, 0, W, H);
+
+    drawBackground(time);
 
     // starfield
     for (const st of stars) {
