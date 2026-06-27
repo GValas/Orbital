@@ -2,7 +2,7 @@
 #
 # bundle.sh — produce a minimal, runtime-only Docker deployment bundle.
 #
-#   ./bundle.sh              → ./bundle/  and  ./bundle.tar.gz
+#   ./bundle.sh              → ./bundle/
 #   ./bundle.sh out/orbital  → custom output directory
 #
 # The bundle contains ONLY what's needed to serve the app — the prebuilt page,
@@ -53,16 +53,11 @@ services:
       - "${ORBITAL_PORT:-8088}:80"
 COMPOSE
 
-# Tarball next to the folder for easy transfer.
-base="$(basename "$OUT")"
-( cd "$OUT/.." && tar czf "$base.tar.gz" "$base" )
-
 echo "✓ Runtime bundle ready ($(find "$OUT" -type f | wc -l | tr -d ' ') files):"
 find "$OUT" -type f | sort | sed 's/^/    /'
-echo "    tarball: ${OUT}.tar.gz ($(du -h "${OUT}.tar.gz" | cut -f1))"
 echo
-echo "Deploy on the target host:"
-echo "    tar xzf $base.tar.gz && cd $base && docker compose up -d"
+echo "Deploy on the target host (copy the folder over, then):"
+echo "    cd $OUT && docker compose up -d"
 echo "Or without building an image (pure bind-mount):"
 echo "    docker run -d --name orbital --restart unless-stopped -p 8088:80 \\"
 echo "      -v \"\$PWD/index.html:/usr/share/nginx/html/index.html:ro\" \\"
