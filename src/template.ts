@@ -44,18 +44,20 @@ const BODY = `
       <div class="ctrl-head"><label>Zoom</label><span class="val" id="v_zoom">1.00×</span></div>
       <input type="range" id="s_zoom" min="20" max="400" value="100">
     </div>
-    <div class="toggle-row"><label for="t_trails">Orbit trails</label>
-      <label class="switch"><input type="checkbox" id="t_trails" checked><span class="slider-sw"></span></label></div>
-    <div class="toggle-row"><label for="t_orbits">Orbit paths</label>
-      <label class="switch"><input type="checkbox" id="t_orbits"><span class="slider-sw"></span></label></div>
-    <div class="toggle-row"><label for="t_labels">Labels</label>
-      <label class="switch"><input type="checkbox" id="t_labels" checked><span class="slider-sw"></span></label></div>
-    <div class="toggle-row"><label for="t_realscale">Realistic scale</label>
-      <label class="switch"><input type="checkbox" id="t_realscale"><span class="slider-sw"></span></label></div>
-    <div class="toggle-row"><label for="t_collide">Collisions (merge)</label>
-      <label class="switch"><input type="checkbox" id="t_collide" checked><span class="slider-sw"></span></label></div>
-    <div class="toggle-row"><label for="t_rings">Asteroid &amp; Oort belts</label>
-      <label class="switch"><input type="checkbox" id="t_rings" checked><span class="slider-sw"></span></label></div>
+    <div class="toggles">
+      <div class="toggle-row"><label for="t_trails">Trails</label>
+        <label class="switch"><input type="checkbox" id="t_trails" checked><span class="slider-sw"></span></label></div>
+      <div class="toggle-row"><label for="t_orbits">Paths</label>
+        <label class="switch"><input type="checkbox" id="t_orbits"><span class="slider-sw"></span></label></div>
+      <div class="toggle-row"><label for="t_labels">Labels</label>
+        <label class="switch"><input type="checkbox" id="t_labels" checked><span class="slider-sw"></span></label></div>
+      <div class="toggle-row"><label for="t_realscale">Real scale</label>
+        <label class="switch"><input type="checkbox" id="t_realscale"><span class="slider-sw"></span></label></div>
+      <div class="toggle-row"><label for="t_collide">Collisions</label>
+        <label class="switch"><input type="checkbox" id="t_collide" checked><span class="slider-sw"></span></label></div>
+      <div class="toggle-row"><label for="t_rings">Belts</label>
+        <label class="switch"><input type="checkbox" id="t_rings" checked><span class="slider-sw"></span></label></div>
+    </div>
   </div>
 
   <div class="group">
@@ -96,6 +98,7 @@ export function renderHTML({ css, js, builtAt }: RenderInput): string {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Orbital — Solar System Simulator</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%230b0e1c'/%3E%3Cpolygon points='16,3 19.8,12.3 29.8,12.3 21.7,18.5 24.9,28 16,22.2 7.1,28 10.3,18.5 2.2,12.3 12.2,12.3' fill='%23ffd24d'/%3E%3C/svg%3E">
 <style>
 ${css.trim()}
 </style>
