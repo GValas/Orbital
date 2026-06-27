@@ -134,12 +134,23 @@ select.sel {
 #readout {
   position: fixed; bottom: 14px; right: 14px; z-index: 10;
   background: var(--panel); border: 1px solid var(--panel-border); border-radius: 12px;
-  padding: 10px 14px; font-size: 11.5px; color: var(--text-dim);
+  padding: 11px 14px; font-size: 11.5px; color: var(--text-dim);
   backdrop-filter: blur(14px); font-variant-numeric: tabular-nums; line-height: 1.7;
-  min-width: 168px;
+  min-width: 190px;
 }
 #readout b { color: var(--text); font-weight: 600; }
-#readout .name { color: var(--accent-2); font-weight: 650; font-size: 12.5px; }
+#readout .head { display: flex; align-items: center; gap: 11px; margin-bottom: 8px; }
+#readout .astro { position: relative; width: 42px; height: 42px; border-radius: 50%; flex: none; }
+#readout .astro .ring {
+  position: absolute; left: 50%; top: 50%; width: 156%; height: 38%;
+  transform: translate(-50%, -50%) rotate(-18deg);
+  border: 2px solid rgba(230, 207, 156, .75); border-radius: 50%;
+}
+#readout .name { color: var(--accent-2); font-weight: 650; font-size: 14px; line-height: 1.25; }
+#readout .kind { color: var(--text-dim); font-size: 11px; }
+#readout .k { display: inline-block; min-width: 62px; color: var(--text-dim); }
+#readout .sep { height: 1px; background: var(--panel-border); margin: 7px 0; }
+#readout .dim { color: var(--text-dim); }
 
 /* tooltip on hover over planet */
 #tip {
@@ -170,16 +181,17 @@ select.sel {
   .switch input:checked + .slider-sw::before { transform: translateX(20px); }
 
   #readout {
-    bottom: 10px; right: 10px; min-width: 0; padding: 8px 11px;
-    font-size: 11px; line-height: 1.6; max-width: 48vw;
+    bottom: 10px; right: 10px; min-width: 0; padding: 9px 11px;
+    font-size: 11px; line-height: 1.6; max-width: 62vw;
   }
+  #readout .astro { width: 34px; height: 34px; }
 }
 </style>
 </head>
 <body>
 <canvas id="scene"></canvas>
 
-<div id="dash">
+<div id="dash" class="collapsed">
   <div class="title"><span class="dot"></span><h1>Orbital</h1><button id="closeDash" aria-label="Close panel">×</button></div>
   <div class="subtitle">An interactive N-body solar system. Tune the physics and watch orbits respond.</div>
 
@@ -236,7 +248,7 @@ select.sel {
     </div>
   </div>
 
-  <div class="credit">Generated from TypeScript · vanilla JS + Canvas<br>Compiled 2026-06-27 17:31 CEST</div>
+  <div class="credit">Generated from TypeScript · vanilla JS + Canvas<br>Compiled 2026-06-27 17:34 CEST</div>
 </div>
 <button id="toggleDash">☰</button>
 
@@ -646,20 +658,63 @@ select.sel {
     if (m >= 1) return m.toFixed(m < 10 ? 2 : 0);
     return m.toFixed(3);
   }
+  function bodyKind(b      )         {
+    if (b.i === 0) return "Star";
+    if (b.extra) return "Comet";
+    if (b.isMoon) return "Moon";
+    return "Planet";
+  }
+  function fmtPeriod(t        )         {
+    if (t < 10) return t.toFixed(2) + " s";
+    if (t < 1000) return t.toFixed(1) + " s";
+    if (t < 1e6) return (t / 1000).toFixed(1) + "k s";
+    return (t / 1e6).toFixed(1) + "M s";
+  }
+  function row(k        , v        )         {
+    return `<span class="k">${k}</span><b>${v}</b><br>`;
+  }
+
   function drawReadout()       {
     const f = bodyById(cam.focus) || bodies[0];
-    let html = `<div class="name">${f.name}</div>`;
-    const speed = Math.sqrt(f.vx * f.vx + f.vy * f.vy);
-    html += `Mass: <b>${fmtMass(f.mass)}</b> M⊕<br>`;
-    html += `Speed: <b>${speed.toFixed(1)}</b> u/s<br>`;
+    const sun = bodies[0];
+    const speed = Math.hypot(f.vx, f.vy);
+
+    // mini picture of the body — a shaded disk (with Saturn's ring / star glow)
+    const lit = lighten(f.color, 0.45);
+    const glow = f.i === 0 ? 24 : 12;
+    const ring = f.name === "Saturn" ? `<span class="ring"></span>` : "";
+    const astro =
+      `<div class="astro" style="background:radial-gradient(circle at 35% 30%, ${lit}, ${f.color});` +
+      `box-shadow:0 0 ${glow}px ${f.color}aa;">${ring}</div>`;
+
+    let html = `<div class="head">${astro}<div>` +
+      `<div class="name">${f.name}</div><div class="kind">${bodyKind(f)}</div></div></div>`;
+    html += row("Mass", `${fmtMass(f.mass)} M⊕`);
+
+    const moons = bodies.filter(b => b.isMoon && b.parent === f.i).length;
+    if (moons > 0) html += row("Moons", String(moons));
+
+    if (f.i !== 0) {
+      html += row("To Sun", `${(Math.hypot(f.x - sun.x, f.y - sun.y) / AU).toFixed(2)} AU`);
+    }
+    if (f.parent !== null && f.parent !== 0) {
+      const p = bodyById(f.parent);
+      if (p) html += row(`To ${p.name}`, `${(Math.hypot(f.x - p.x, f.y - p.y) / AU).toFixed(3)} AU`);
+    }
+
+    html += row("Speed", `${speed.toFixed(1)} u/s`);
+
     if (f.parent !== null) {
       const p = bodyById(f.parent);
       if (p) {
-        const d = Math.hypot(f.x - p.x, f.y - p.y) / AU;
-        html += `Dist to ${p.name}: <b>${d.toFixed(2)}</b> AU<br>`;
+        const r = Math.hypot(f.x - p.x, f.y - p.y);
+        const mu = BASE_G * GRAV_SCALE * massOf(p);
+        if (mu > 0 && r > 0) html += row("Period", `~${fmtPeriod(2 * Math.PI * Math.sqrt(r * r * r / mu))}`);
       }
     }
-    html += `<span style="color:var(--text-dim)">Bodies: ${bodies.length} · G ${GRAV_SCALE.toFixed(2)}× · ${TIME_SCALE.toFixed(1)}×t</span>`;
+
+    html += `<div class="sep"></div>`;
+    html += `<span class="dim">Bodies ${bodies.length} · G ${GRAV_SCALE.toFixed(2)}× · ${TIME_SCALE.toFixed(2)}×t</span>`;
     readoutEl.innerHTML = html;
   }
 
@@ -814,10 +869,17 @@ select.sel {
     followSuspended = false;  // re-enable following when a focus is chosen
   });
 
-  // Collapse dashboard (hamburger opens, × closes; start closed on phones)
+  // Menu starts folded (class set in markup). ☰ unfolds, × folds, and a
+  // pointer-press anywhere outside the menu auto-folds it.
   $("toggleDash").addEventListener("click", () => $("dash").classList.remove("collapsed"));
   $("closeDash").addEventListener("click", () => $("dash").classList.add("collapsed"));
-  if (window.matchMedia("(max-width: 640px)").matches) $("dash").classList.add("collapsed");
+  document.addEventListener("pointerdown", e => {
+    const dash = $("dash");
+    if (dash.classList.contains("collapsed")) return;     // already folded
+    const target = e.target        ;
+    if (dash.contains(target) || $("toggleDash").contains(target)) return;  // inside menu / open button
+    dash.classList.add("collapsed");
+  });
   document.addEventListener("keydown", e => {
     if (e.key === "h") $("dash").classList.toggle("collapsed");
     if (e.key === "0") { viewSpin = 0; viewTilt = DEFAULT_TILT; }  // reset view

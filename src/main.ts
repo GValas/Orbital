@@ -400,20 +400,63 @@
     if (m >= 1) return m.toFixed(m < 10 ? 2 : 0);
     return m.toFixed(3);
   }
+  function bodyKind(b: Body): string {
+    if (b.i === 0) return "Star";
+    if (b.extra) return "Comet";
+    if (b.isMoon) return "Moon";
+    return "Planet";
+  }
+  function fmtPeriod(t: number): string {
+    if (t < 10) return t.toFixed(2) + " s";
+    if (t < 1000) return t.toFixed(1) + " s";
+    if (t < 1e6) return (t / 1000).toFixed(1) + "k s";
+    return (t / 1e6).toFixed(1) + "M s";
+  }
+  function row(k: string, v: string): string {
+    return `<span class="k">${k}</span><b>${v}</b><br>`;
+  }
+
   function drawReadout(): void {
     const f = bodyById(cam.focus) || bodies[0];
-    let html = `<div class="name">${f.name}</div>`;
-    const speed = Math.sqrt(f.vx * f.vx + f.vy * f.vy);
-    html += `Mass: <b>${fmtMass(f.mass)}</b> M⊕<br>`;
-    html += `Speed: <b>${speed.toFixed(1)}</b> u/s<br>`;
+    const sun = bodies[0];
+    const speed = Math.hypot(f.vx, f.vy);
+
+    // mini picture of the body — a shaded disk (with Saturn's ring / star glow)
+    const lit = lighten(f.color, 0.45);
+    const glow = f.i === 0 ? 24 : 12;
+    const ring = f.name === "Saturn" ? `<span class="ring"></span>` : "";
+    const astro =
+      `<div class="astro" style="background:radial-gradient(circle at 35% 30%, ${lit}, ${f.color});` +
+      `box-shadow:0 0 ${glow}px ${f.color}aa;">${ring}</div>`;
+
+    let html = `<div class="head">${astro}<div>` +
+      `<div class="name">${f.name}</div><div class="kind">${bodyKind(f)}</div></div></div>`;
+    html += row("Mass", `${fmtMass(f.mass)} M⊕`);
+
+    const moons = bodies.filter(b => b.isMoon && b.parent === f.i).length;
+    if (moons > 0) html += row("Moons", String(moons));
+
+    if (f.i !== 0) {
+      html += row("To Sun", `${(Math.hypot(f.x - sun.x, f.y - sun.y) / AU).toFixed(2)} AU`);
+    }
+    if (f.parent !== null && f.parent !== 0) {
+      const p = bodyById(f.parent);
+      if (p) html += row(`To ${p.name}`, `${(Math.hypot(f.x - p.x, f.y - p.y) / AU).toFixed(3)} AU`);
+    }
+
+    html += row("Speed", `${speed.toFixed(1)} u/s`);
+
     if (f.parent !== null) {
       const p = bodyById(f.parent);
       if (p) {
-        const d = Math.hypot(f.x - p.x, f.y - p.y) / AU;
-        html += `Dist to ${p.name}: <b>${d.toFixed(2)}</b> AU<br>`;
+        const r = Math.hypot(f.x - p.x, f.y - p.y);
+        const mu = BASE_G * GRAV_SCALE * massOf(p);
+        if (mu > 0 && r > 0) html += row("Period", `~${fmtPeriod(2 * Math.PI * Math.sqrt(r * r * r / mu))}`);
       }
     }
-    html += `<span style="color:var(--text-dim)">Bodies: ${bodies.length} · G ${GRAV_SCALE.toFixed(2)}× · ${TIME_SCALE.toFixed(1)}×t</span>`;
+
+    html += `<div class="sep"></div>`;
+    html += `<span class="dim">Bodies ${bodies.length} · G ${GRAV_SCALE.toFixed(2)}× · ${TIME_SCALE.toFixed(2)}×t</span>`;
     readoutEl.innerHTML = html;
   }
 
@@ -568,10 +611,17 @@
     followSuspended = false;  // re-enable following when a focus is chosen
   });
 
-  // Collapse dashboard (hamburger opens, × closes; start closed on phones)
+  // Menu starts folded (class set in markup). ☰ unfolds, × folds, and a
+  // pointer-press anywhere outside the menu auto-folds it.
   $("toggleDash").addEventListener("click", () => $("dash").classList.remove("collapsed"));
   $("closeDash").addEventListener("click", () => $("dash").classList.add("collapsed"));
-  if (window.matchMedia("(max-width: 640px)").matches) $("dash").classList.add("collapsed");
+  document.addEventListener("pointerdown", e => {
+    const dash = $("dash");
+    if (dash.classList.contains("collapsed")) return;     // already folded
+    const target = e.target as Node;
+    if (dash.contains(target) || $("toggleDash").contains(target)) return;  // inside menu / open button
+    dash.classList.add("collapsed");
+  });
   document.addEventListener("keydown", e => {
     if (e.key === "h") $("dash").classList.toggle("collapsed");
     if (e.key === "0") { viewSpin = 0; viewTilt = DEFAULT_TILT; }  // reset view

@@ -14,7 +14,7 @@ export interface RenderInput {
 const BODY = `
 <canvas id="scene"></canvas>
 
-<div id="dash">
+<div id="dash" class="collapsed">
   <div class="title"><span class="dot"></span><h1>Orbital</h1><button id="closeDash" aria-label="Close panel">×</button></div>
   <div class="subtitle">An interactive N-body solar system. Tune the physics and watch orbits respond.</div>
 
