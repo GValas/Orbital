@@ -22,7 +22,7 @@ const BODY = `
     <div class="group-label">Simulation</div>
     <div class="ctrl">
       <div class="ctrl-head"><label>Time speed</label><span class="val" id="v_speed">0.10×</span></div>
-      <input type="range" id="s_speed" min="0" max="50" value="10">
+      <input type="range" id="s_speed" min="0" max="20" value="10">
     </div>
     <div class="ctrl">
       <div class="ctrl-head"><label>Gravity (G)</label><span class="val" id="v_grav">1.00×</span></div>
