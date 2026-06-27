@@ -47,13 +47,15 @@ const BODY = `
     <div class="toggle-row"><label for="t_trails">Orbit trails</label>
       <label class="switch"><input type="checkbox" id="t_trails" checked><span class="slider-sw"></span></label></div>
     <div class="toggle-row"><label for="t_orbits">Orbit paths</label>
-      <label class="switch"><input type="checkbox" id="t_orbits" checked><span class="slider-sw"></span></label></div>
+      <label class="switch"><input type="checkbox" id="t_orbits"><span class="slider-sw"></span></label></div>
     <div class="toggle-row"><label for="t_labels">Labels</label>
       <label class="switch"><input type="checkbox" id="t_labels" checked><span class="slider-sw"></span></label></div>
     <div class="toggle-row"><label for="t_realscale">Realistic scale</label>
       <label class="switch"><input type="checkbox" id="t_realscale"><span class="slider-sw"></span></label></div>
     <div class="toggle-row"><label for="t_collide">Collisions (merge)</label>
       <label class="switch"><input type="checkbox" id="t_collide" checked><span class="slider-sw"></span></label></div>
+    <div class="toggle-row"><label for="t_rings">Asteroid &amp; Oort belts</label>
+      <label class="switch"><input type="checkbox" id="t_rings" checked><span class="slider-sw"></span></label></div>
   </div>
 
   <div class="group">
@@ -69,12 +71,16 @@ const BODY = `
       <button class="b" id="b_kick">Kick planets</button>
       <button class="b" id="b_comet">Add comet</button>
     </div>
+    <div class="btn-row" style="margin-top:6px;">
+      <button class="b" id="b_random">🌟 Random system</button>
+    </div>
   </div>
 
-  <div class="credit">Generated from TypeScript · vanilla JS + Canvas<br>Compiled __BUILT_AT__</div>
+  <div class="credit">An interactive N-body sandbox.</div>
 </div>
 <button id="toggleDash">☰</button>
 
+<div id="buildinfo">Generated from TypeScript · vanilla JS + Canvas<br>Compiled __BUILT_AT__</div>
 <div id="readout"></div>
 <div id="tip"></div>`;
 

@@ -111,6 +111,102 @@
       b.vx = p.vx + Math.sin(ang) * -v;  // perpendicular to radius (CCW)
       b.vy = p.vy + Math.cos(ang) * v;
     }
+    makeRings();
+  }
+
+  // Create a body on a circular orbit about `parent`, with a fresh id.
+  function spawnOrbiter(parent: Body, distAU: number, radius: number, mass: number,
+                        color: string, name: string, isMoon: boolean): Body {
+    const ang = Math.random() * Math.PI * 2;
+    const r = distAU * AU;
+    const v = Math.sqrt(BASE_G * massOf(parent) * GRAV_SCALE / r);
+    return {
+      i: nextId++, name, color, distAU, radius, mass, parent: parent.i, isMoon,
+      x: parent.x + Math.cos(ang) * r, y: parent.y + Math.sin(ang) * r,
+      vx: parent.vx + Math.sin(ang) * -v, vy: parent.vy + Math.cos(ang) * v,
+      trail: [], extra: false,
+    };
+  }
+
+  const PALETTE = ["#6fb1ff", "#e06a4a", "#d8a878", "#8fe0e0", "#5a78e0",
+                   "#e8c27a", "#b9a08a", "#9fd17a", "#c98fe0", "#e6cf9c"];
+  const NAMES = ["Aon", "Bel", "Cyr", "Dris", "Eos", "Fenn", "Gala", "Hyl", "Ira", "Kael",
+                 "Lyra", "Mir", "Nyx", "Orin", "Pyr", "Rho", "Syl", "Tyr", "Vael", "Zeph"];
+
+  // Random system: a star with up to 10 planets, each with up to 4 moons.
+  function makeRandomSystem(): void {
+    bodies = [];
+    nextId = 0;
+    flashes.length = 0;
+    const sun: Body = {
+      i: nextId++, name: "Sun", color: "#ffcf4d", distAU: 0,
+      radius: 22 + Math.random() * 8, mass: 333000, parent: null, isMoon: false,
+      x: 0, y: 0, vx: 0, vy: 0, trail: [], extra: false,
+    };
+    bodies.push(sun);
+
+    const nPlanets = 1 + Math.floor(Math.random() * 10);          // 1..10
+    let dist = 0.5 + Math.random() * 0.3;
+    for (let p = 0; p < nPlanets; p++) {
+      dist += 0.32 + Math.random() * 0.6;
+      const mass = Math.pow(10, Math.random() * 3.7 - 1.3);       // ~0.05 .. ~250 M⊕
+      const radius = Math.max(3, Math.min(16, Math.cbrt(mass) * 2.2 + 2));
+      const name = NAMES[Math.floor(Math.random() * NAMES.length)] + "-" + (p + 1);
+      const planet = spawnOrbiter(sun, dist, radius, mass, PALETTE[p % PALETTE.length], name, false);
+      bodies.push(planet);
+
+      const nMoons = Math.floor(Math.random() * 5);               // 0..4
+      let md = (radius / AU) * 2.2 + 0.06;                        // clear of the planet disk
+      for (let mn = 0; mn < nMoons; mn++) {
+        md += 0.07 + Math.random() * 0.12;
+        const mmass = mass * (0.0005 + Math.random() * 0.008);
+        const mradius = Math.max(1.2, Math.min(5, Math.min(radius * 0.42, Math.cbrt(mmass) * 2 + 1)));
+        bodies.push(spawnOrbiter(planet, md, mradius, mmass, "#cfd3da",
+          name + " " + String.fromCharCode(97 + mn), true));
+      }
+    }
+    cam.focus = 0; selected = 0; followSuspended = false;
+    belt = []; oort = [];   // a random system has no predefined belts
+    buildFocusList();
+  }
+
+  // Populate the asteroid belt (between Mars & Jupiter) and the far Oort cloud.
+  function makeRings(): void {
+    belt = []; oort = [];
+    const sunMass = 333000;
+    for (let i = 0; i < 520; i++) {
+      const r = (1.62 + Math.random() * 0.46) * AU;   // between Mars and Jupiter
+      const w = Math.sqrt(BASE_G * sunMass / (r * r * r));
+      const s = 110 + Math.floor(Math.random() * 70);
+      const al = (0.22 + Math.random() * 0.5).toFixed(2);
+      belt.push({ a: Math.random() * Math.PI * 2, r, w, c: `rgba(${s},${(s * 0.85) | 0},${(s * 0.64) | 0},${al})` });
+    }
+    for (let i = 0; i < 640; i++) {
+      const r = (5.1 + Math.random() * 2.9) * AU;      // far beyond Neptune
+      const w = Math.sqrt(BASE_G * sunMass / (r * r * r));
+      const al = (0.10 + Math.random() * 0.32).toFixed(2);
+      oort.push({ a: Math.random() * Math.PI * 2, r, w, c: `rgba(190,210,235,${al})` });
+    }
+  }
+
+  function advanceRings(simDt: number): void {
+    const g = Math.sqrt(GRAV_SCALE);
+    for (const p of belt) p.a += p.w * g * simDt;
+    for (const p of oort) p.a += p.w * g * simDt;
+  }
+
+  function drawRings(): void {
+    if (!showRings) return;
+    const sun = bodies[0];
+    if (!sun) return;
+    for (const p of belt) {
+      const [sx, sy] = worldToScreen(sun.x + Math.cos(p.a) * p.r, sun.y + Math.sin(p.a) * p.r);
+      ctx.fillStyle = p.c; ctx.fillRect(sx, sy, 1.3, 1.3);
+    }
+    for (const p of oort) {
+      const [sx, sy] = worldToScreen(sun.x + Math.cos(p.a) * p.r, sun.y + Math.sin(p.a) * p.r);
+      ctx.fillStyle = p.c; ctx.fillRect(sx, sy, 1.1, 1.1);
+    }
   }
 
   // --------------------------- Physics -----------------------------
@@ -219,11 +315,13 @@
     for (const x of bodies) if (x.parent === gone.i) x.parent = survivor.i;
     bodies.splice(bodies.indexOf(gone), 1);
     if (cam.focus === gone.i) cam.focus = survivor.i;
+    if (selected === gone.i) selected = survivor.i;
     flashes.push({ x: survivor.x, y: survivor.y, age: 0, max: 0.5, r: survivor.radius });
   }
 
   // --------------------------- Camera ------------------------------
   const cam = { x: 0, y: 0, focus: 0 };  // world coords at screen center
+  let selected = 0;                      // body shown in the info card (id) — independent of camera follow
   let panning = false, panLast: Vec2 | null = null, didDrag = false;
   let followSuspended = false, followTimer: number | null = null;
 
@@ -263,7 +361,13 @@
   makeStars();
   window.addEventListener("resize", makeStars);
 
-  let showTrails = true, showOrbits = true, showLabels = true;
+  let showTrails = true, showOrbits = false, showLabels = true, showRings = true;
+
+  // Decorative particle belts (asteroid belt + Oort cloud). These are visual
+  // only — they orbit at the right relative rate but aren't part of the N-body.
+  interface Particle { a: number; r: number; w: number; c: string; }
+  let belt: Particle[] = [];
+  let oort: Particle[] = [];
 
   // --------------------------- Render ------------------------------
   function lighten(hex: string, amt: number): string {
@@ -325,6 +429,8 @@
         ctx.stroke();
       }
     }
+
+    drawRings();
 
     // bodies, back-to-front so nearer ones overlap farther ones when tilted
     const order = viewTilt > 0.001
@@ -417,7 +523,7 @@
   }
 
   function drawReadout(): void {
-    const f = bodyById(cam.focus) || bodies[0];
+    const f = bodyById(selected) || bodies[0];
     const sun = bodies[0];
     const speed = Math.hypot(f.vx, f.vy);
 
@@ -477,6 +583,7 @@
       const h = simDt / sub;
       for (let s = 0; s < sub; s++) step(h);
 
+      advanceRings(simDt);
       if (collisions) resolveCollisions();
 
       for (const b of bodies) {
@@ -526,6 +633,7 @@
   $<HTMLInputElement>("t_labels").addEventListener("change", e => showLabels = (e.target as HTMLInputElement).checked);
   $<HTMLInputElement>("t_realscale").addEventListener("change", e => REAL_SCALE = (e.target as HTMLInputElement).checked);
   $<HTMLInputElement>("t_collide").addEventListener("change", e => collisions = (e.target as HTMLInputElement).checked);
+  $<HTMLInputElement>("t_rings").addEventListener("change", e => showRings = (e.target as HTMLInputElement).checked);
 
   const pauseBtn = $<HTMLButtonElement>("b_pause");
   pauseBtn.addEventListener("click", () => {
@@ -552,14 +660,16 @@
     setRange("s_sun", 100);    // 1.00×
     setRange("s_zoom", 100);   // 1.00×
     setToggle("t_trails", true);
-    setToggle("t_orbits", true);
+    setToggle("t_orbits", false);
     setToggle("t_labels", true);
     setToggle("t_realscale", false);
     setToggle("t_collide", true);
+    setToggle("t_rings", true);
     flashes.length = 0;
     viewSpin = 0; viewTilt = DEFAULT_TILT; // default perspective
     if (paused) pauseBtn.click();         // resume if paused
     cam.focus = 0;                        // Sun
+    selected = 0;
     followSuspended = false;
     makeBodies();
     buildFocusList();
@@ -600,6 +710,7 @@
     });
     buildFocusList();
   });
+  $("b_random").addEventListener("click", makeRandomSystem);
 
   // Focus dropdown
   const selFocus = $<HTMLSelectElement>("sel_focus");
@@ -614,6 +725,7 @@
   }
   selFocus.addEventListener("change", e => {
     cam.focus = +(e.target as HTMLSelectElement).value;
+    selected = cam.focus;     // also show the followed body's card
     followSuspended = false;  // re-enable following when a focus is chosen
   });
 
@@ -753,6 +865,8 @@
     }
   }, { passive: false });
 
+  // Clicking/tapping a body only shows its info card; it does NOT move/follow
+  // the camera. Use the Focus dropdown to make the camera follow a body.
   function pickBody(sx: number, sy: number): void {
     let best = -1, bestD = 24;
     for (const b of bodies) {
@@ -761,7 +875,7 @@
       const rad = (REAL_SCALE ? 6 : b.radius) + 8;
       if (d < Math.max(bestD, rad)) { bestD = d; best = b.i; }
     }
-    if (best >= 0) { cam.focus = best; selFocus.value = String(best); followSuspended = false; }
+    if (best >= 0) selected = best;
   }
 
   const tip = $("tip");
@@ -786,5 +900,6 @@
   makeBodies();
   buildFocusList();
   cam.focus = 0;
+  selected = 0;
   requestAnimationFrame(frame);
 })();
