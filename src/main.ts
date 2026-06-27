@@ -359,7 +359,7 @@
     el.addEventListener("input", update); update();
   }
 
-  bindRange("s_speed", "v_speed", v => (TIME_SCALE = v / 100), o => o.toFixed(1) + "×");
+  bindRange("s_speed", "v_speed", v => (TIME_SCALE = v / 100), o => o.toFixed(2) + "×");
   bindRange("s_grav",  "v_grav",  v => (GRAV_SCALE = v / 100), o => o.toFixed(2) + "×");
   bindRange("s_sun",   "v_sun",   v => (SUN_SCALE  = v / 100), o => o.toFixed(2) + "×");
   bindRange("s_zoom",  "v_zoom",  v => (ZOOM       = v / 100), o => o.toFixed(2) + "×");
@@ -389,7 +389,7 @@
     c.dispatchEvent(new Event("change"));  // drives the show* flag
   }
   function resetDefaults(): void {
-    setRange("s_speed", 20);   // 0.2×
+    setRange("s_speed", 10);   // 0.10×
     setRange("s_grav", 100);   // 1.00×
     setRange("s_sun", 100);    // 1.00×
     setRange("s_zoom", 100);   // 1.00×
