@@ -1,0 +1,10 @@
+# Production deployment for Orbital.
+# Works with `docker compose up -d` and with Unraid's Compose Manager plugin.
+services:
+  orbital:
+    build: .
+    image: orbital:latest
+    container_name: orbital
+    restart: unless-stopped
+    ports:
+      - "${ORBITAL_PORT:-8088}:80"

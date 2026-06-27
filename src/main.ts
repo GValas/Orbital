@@ -55,20 +55,31 @@
   const AU = 90;        // pixels per AU at zoom 1 (compressed view)
   const BASE_G = 2600;  // tuned so circular orbits look good at this scale
 
+  // Moons are listed immediately after their parent planet; `parent` is the
+  // 0-based index of another row, so order matters (a parent must precede its
+  // moons). Moon orbital distances are spread for visibility, not to scale.
   const DEFS: BodyDef[] = [
-    ["Sun",     "#ffcf4d",  0.00, 26,  333000, null, false],
-    ["Mercury", "#b9a08a",  0.55,  3.0,   0.055, 0, false],
-    ["Venus",   "#e8c27a",  0.80,  5.4,   0.815, 0, false],
-    ["Earth",   "#6fb1ff",  1.10,  5.7,   1.000, 0, false],
-    ["Moon",    "#cfd3da",  0.16,  2.0,   0.012, 3, true ],
-    ["Mars",    "#e06a4a",  1.45,  4.2,   0.107, 0, false],
-    ["Jupiter", "#d8a878",  2.30, 15.0, 317.8,   0, false],
-    ["Io",      "#e8e07a",  0.30,  1.9,   0.015, 6, true ],
-    ["Europa",  "#cdbfa0",  0.40,  1.7,   0.008, 6, true ],
-    ["Saturn",  "#e6cf9c",  3.10, 12.5,  95.2,   0, false],
-    ["Titan",   "#c8a85a",  0.42,  2.0,   0.022, 9, true ],
-    ["Uranus",  "#8fe0e0",  3.85,  9.0,  14.5,   0, false],
-    ["Neptune", "#5a78e0",  4.55,  8.7,  17.1,   0, false],
+    ["Sun",       "#ffcf4d",  0.00, 26,  333000, null, false],  // 0
+    ["Mercury",   "#b9a08a",  0.55,  3.0,   0.055, 0, false],   // 1
+    ["Venus",     "#e8c27a",  0.80,  5.4,   0.815, 0, false],   // 2
+    ["Earth",     "#6fb1ff",  1.10,  5.7,   1.000, 0, false],   // 3
+    ["Moon",      "#cfd3da",  0.16,  2.0,   0.012,   3, true ],
+    ["Mars",      "#e06a4a",  1.45,  4.2,   0.107, 0, false],   // 5
+    ["Phobos",    "#9a8d80",  0.10,  1.2,   0.000002, 5, true ],
+    ["Deimos",    "#a89a88",  0.15,  1.1,   0.000002, 5, true ],
+    ["Jupiter",   "#d8a878",  2.30, 15.0, 317.8,   0, false],   // 8
+    ["Io",        "#e8e07a",  0.30,  1.9,   0.015,   8, true ],
+    ["Europa",    "#cdbfa0",  0.40,  1.7,   0.008,   8, true ],
+    ["Ganymede",  "#b7a98f",  0.52,  2.3,   0.025,   8, true ],
+    ["Callisto",  "#8d8378",  0.64,  2.2,   0.018,   8, true ],
+    ["Saturn",    "#e6cf9c",  3.10, 12.5,  95.2,    0, false],  // 13
+    ["Enceladus", "#eef4ff",  0.30,  1.3,   0.00002, 13, true ],
+    ["Dione",     "#cdd2da",  0.36,  1.4,   0.0002,  13, true ],
+    ["Rhea",      "#cfd0d4",  0.44,  1.6,   0.0004,  13, true ],
+    ["Titan",     "#c8a85a",  0.55,  2.0,   0.022,   13, true ],
+    ["Iapetus",   "#b8a890",  0.72,  1.6,   0.0003,  13, true ],
+    ["Uranus",    "#8fe0e0",  3.85,  9.0,  14.5,    0, false],  // 19
+    ["Neptune",   "#5a78e0",  4.55,  8.7,  17.1,    0, false],  // 20
   ];
 
   let bodies: Body[] = [];

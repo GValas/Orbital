@@ -7,6 +7,8 @@ so the gravity / mass / time controls genuinely reshape the orbits.
 The whole thing is written in **TypeScript** and compiled into a single,
 dependency-free `index.html` by a build script.
 
+![Orbital — tilted view of the solar system](docs/screenshot.png)
+
 ## Project layout
 
 ```
@@ -36,19 +38,36 @@ npm install            # pulls typescript + @types/node (dev only)
 npm run typecheck      # tsc --noEmit
 ```
 
+## Deploy (Docker)
+
+A multi-stage build regenerates `index.html` from source and serves it from a
+tiny hardened nginx image (~48 MB). No Node.js in the final image.
+
+```bash
+./docker.sh            # build the image and run it → http://localhost:8088
+./docker.sh stop       # stop & remove the container
+# or with Compose:
+docker compose up -d   # http://localhost:${ORBITAL_PORT:-8088}
+```
+
+Override port/name/image via env vars, e.g. `ORBITAL_PORT=9000 ./docker.sh`.
+On Unraid, point the Compose Manager plugin at `docker-compose.yml`, or add a
+container from the `orbital:latest` image mapping host port → container `80`.
+
 ## Controls
 
 | Control | Effect |
 | --- | --- |
-| **Time speed** | 0–5× simulation rate (slow-mo ↔ fast-forward) |
+| **Time speed** | 0–0.5× simulation rate (default 0.10×) |
 | **Gravity (G)** | 0–3× the gravitational constant — destabilizes or tightens orbits |
 | **Sun mass** | 0.1–3× — reshapes every heliocentric orbit |
 | **Zoom / View toggles** | trails, orbit paths, labels, mass-scaled body sizes |
 | **Focus body** | camera follows any planet or moon |
 | **Experiments** | Zero-G · Kick planets · Add comet |
 
-Mouse: drag to pan · scroll to zoom · click a body to focus · hover for stats.
-Keys: `space` pause/play · `h` hide the dashboard.
+Mouse: drag to pan · scroll to zoom · click a body to focus · hover for stats ·
+**hold both buttons and drag to tilt/spin the orbital plane**.
+Keys: `space` pause/play · `h` hide the dashboard · `0` reset the view.
 
 ## Notes
 
