@@ -18,8 +18,13 @@ Written in **TypeScript** and compiled into a single, dependency-free
 - **Collisions** — overlapping bodies merge (momentum-conserving accretion)
   with a flash; toggleable.
 - **Random system generator** — a star with up to 10 planets, each with up to
-  4 moons.
+  4 moons (also resets all controls to defaults).
+- **Launch Voyager 1** — a probe leaves Earth on a real escape trajectory and
+  can pick up gravity assists from the planets it passes.
 - **Asteroid belt + Oort cloud** as animated decorative particle belts.
+- **Animated deep-space background** — drifting nebulae and slowly rotating
+  spiral galaxies.
+- **Terrestrial day counter** — elapsed time in Earth days (1 orbit = 365.25).
 - **3D-ish view** — tilt/spin the orbital plane; depth-sorted rendering.
 - **Info card** with a mini picture, type, mass, moons, distances and an
   estimated orbital period for any body you click.
@@ -34,7 +39,7 @@ Written in **TypeScript** and compiled into a single, dependency-free
 | **Sun mass** | 0.1–3× — reshapes every heliocentric orbit |
 | **Zoom** + view toggles | trails, orbit paths, labels, realistic scale, collisions, belts |
 | **Focus body** | camera follows any planet or moon |
-| **Experiments** | Zero-G · Kick planets · Add comet · 🌟 Random system |
+| **Experiments** | Zero-G · Kick planets · Add comet · 🌟 Random system · 🛰️ Launch Voyager 1 |
 | **Reset** | restore the real solar system and all defaults |
 
 - **Mouse:** drag to pan · scroll to zoom · **click a body to show its info
