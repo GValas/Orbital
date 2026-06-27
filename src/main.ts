@@ -492,8 +492,10 @@
     followSuspended = false;  // re-enable following when a focus is chosen
   });
 
-  // Collapse dashboard
+  // Collapse dashboard (hamburger opens, × closes; start closed on phones)
   $("toggleDash").addEventListener("click", () => $("dash").classList.remove("collapsed"));
+  $("closeDash").addEventListener("click", () => $("dash").classList.add("collapsed"));
+  if (window.matchMedia("(max-width: 640px)").matches) $("dash").classList.add("collapsed");
   document.addEventListener("keydown", e => {
     if (e.key === "h") $("dash").classList.toggle("collapsed");
     if (e.key === "0") { viewSpin = 0; viewTilt = DEFAULT_TILT; }  // reset view
@@ -543,10 +545,80 @@
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.12 : 0.89;
     const z = Math.max(0.2, Math.min(4, ZOOM * factor));
-    ZOOM = z;
+    setZoom(z);
+  }, { passive: false });
+
+  function setZoom(z: number): void {
+    ZOOM = Math.max(0.2, Math.min(4, z));
     const s = $<HTMLInputElement>("s_zoom");
-    s.value = String(Math.round(z * 100));
+    s.value = String(Math.round(ZOOM * 100));
     s.dispatchEvent(new Event("input"));
+  }
+
+  // ----------------------------- Touch -----------------------------
+  // 1 finger  → pan (tap = focus a body)
+  // 2 fingers → pinch to zoom + drag to tilt (vertical) / spin (horizontal)
+  let touchMode: "none" | "pan" | "gesture" = "none";
+  let touchLast: Vec2 | null = null;   // last finger / two-finger midpoint
+  let tapStart: Vec2 | null = null;
+  let touchMoved = false;
+  let pinchDist = 0;
+
+  function midpoint(t: TouchList): Vec2 {
+    return [(t[0].clientX + t[1].clientX) / 2, (t[0].clientY + t[1].clientY) / 2];
+  }
+  function spread(t: TouchList): number {
+    return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  }
+
+  canvas.addEventListener("touchstart", e => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      touchMode = "pan"; touchMoved = false;
+      touchLast = [e.touches[0].clientX, e.touches[0].clientY];
+      tapStart = touchLast;
+    } else if (e.touches.length >= 2) {
+      touchMode = "gesture"; touchMoved = true;
+      touchLast = midpoint(e.touches);
+      pinchDist = spread(e.touches);
+    }
+  }, { passive: false });
+
+  canvas.addEventListener("touchmove", e => {
+    e.preventDefault();
+    const last = touchLast;
+    if (!last) return;
+
+    if (touchMode === "pan" && e.touches.length === 1) {
+      const x = e.touches[0].clientX, y = e.touches[0].clientY;
+      const dx = x - last[0], dy = y - last[1];
+      if (Math.abs(dx) + Math.abs(dy) > 6) touchMoved = true;
+      const sdx = dx, sdy = dy / Math.cos(viewTilt);
+      const cs = Math.cos(viewSpin), sn = Math.sin(viewSpin);
+      cam.x -= (sdx * cs + sdy * sn) / ZOOM;
+      cam.y -= (-sdx * sn + sdy * cs) / ZOOM;
+      followSuspended = true;
+      if (followTimer !== null) clearTimeout(followTimer);
+      followTimer = window.setTimeout(() => (followSuspended = false), 1200);
+      touchLast = [x, y];
+    } else if (touchMode === "gesture" && e.touches.length >= 2) {
+      const mid = midpoint(e.touches), dist = spread(e.touches);
+      if (pinchDist > 0) setZoom(ZOOM * (dist / pinchDist));
+      pinchDist = dist;
+      const dmx = mid[0] - last[0], dmy = mid[1] - last[1];
+      viewSpin += dmx * 0.005;
+      viewTilt = Math.max(0, Math.min(1.45, viewTilt + dmy * 0.005));
+      touchLast = mid;
+    }
+  }, { passive: false });
+
+  canvas.addEventListener("touchend", e => {
+    if (touchMode === "pan" && !touchMoved && tapStart) pickBody(tapStart[0], tapStart[1]);
+    if (e.touches.length === 0) { touchMode = "none"; touchLast = null; }
+    else if (e.touches.length === 1) {
+      touchMode = "pan"; touchMoved = true;  // continuing after a gesture isn't a tap
+      touchLast = [e.touches[0].clientX, e.touches[0].clientY];
+    }
   }, { passive: false });
 
   function pickBody(sx: number, sy: number): void {

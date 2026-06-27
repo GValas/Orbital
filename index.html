@@ -6,7 +6,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Orbital — Solar System Simulator</title>
 <style>
 :root {
@@ -19,14 +19,24 @@
   --text-dim: #8b93b5;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; overflow: hidden; background: var(--bg); }
+html, body { height: 100%; overflow: hidden; background: var(--bg); overscroll-behavior: none; }
 body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
 }
-#scene { position: fixed; inset: 0; display: block; cursor: grab; }
+/* touch-action:none lets the canvas own all touch gestures (no page scroll/zoom) */
+#scene { position: fixed; inset: 0; display: block; cursor: grab; touch-action: none; }
 #scene:active { cursor: grabbing; }
+
+/* close (×) button in the dashboard header — only shown on mobile */
+#closeDash {
+  display: none; margin-left: auto; width: 30px; height: 30px; flex: none;
+  border-radius: 8px; border: 1px solid var(--panel-border);
+  background: rgba(255,255,255,.05); color: var(--text);
+  font-size: 22px; line-height: 1; cursor: pointer;
+  align-items: center; justify-content: center;
+}
 
 /* ---- Dashboard ---- */
 #dash {
@@ -137,13 +147,39 @@ select.sel {
   transform: translate(-50%, calc(-100% - 12px)); white-space: nowrap;
 }
 .credit { font-size: 10px; color: var(--text-dim); text-align: center; margin-top: 8px; opacity: .7; }
+
+/* ---- Mobile / touch ---- */
+@media (max-width: 640px) {
+  #dash {
+    width: min(330px, calc(100vw - 20px));
+    top: 12px; left: 12px; padding: 14px 14px 10px; border-radius: 14px;
+    max-height: calc(100dvh - 24px);
+  }
+  #toggleDash { top: 12px; left: 12px; }
+  #closeDash { display: flex; }
+
+  /* larger tap targets */
+  input[type=range] { height: 6px; }
+  input[type=range]::-webkit-slider-thumb { width: 22px; height: 22px; }
+  input[type=range]::-moz-range-thumb { width: 22px; height: 22px; }
+  button.b { padding: 11px 10px; font-size: 13px; }
+  .toggle-row { padding: 7px 0; }
+  .switch { width: 46px; height: 26px; }
+  .slider-sw::before { height: 20px; width: 20px; }
+  .switch input:checked + .slider-sw::before { transform: translateX(20px); }
+
+  #readout {
+    bottom: 10px; right: 10px; min-width: 0; padding: 8px 11px;
+    font-size: 11px; line-height: 1.6; max-width: 48vw;
+  }
+}
 </style>
 </head>
 <body>
 <canvas id="scene"></canvas>
 
 <div id="dash">
-  <div class="title"><span class="dot"></span><h1>Orbital</h1></div>
+  <div class="title"><span class="dot"></span><h1>Orbital</h1><button id="closeDash" aria-label="Close panel">×</button></div>
   <div class="subtitle">An interactive N-body solar system. Tune the physics and watch orbits respond.</div>
 
   <div class="group">
@@ -185,7 +221,7 @@ select.sel {
   <div class="group">
     <div class="group-label">Focus body</div>
     <select class="sel" id="sel_focus"></select>
-    <div class="hint">Drag to pan · Scroll to zoom · Click a body to focus &middot; <b>Both buttons drag to tilt/spin</b> &middot; Press <b>0</b> to reset view.</div>
+    <div class="hint">Drag to pan · Scroll to zoom · Click a body to focus &middot; <b>Both buttons drag to tilt/spin</b> &middot; Press <b>0</b> to reset view.<br><b>Touch:</b> drag to pan &middot; pinch to zoom &middot; two fingers to tilt/spin &middot; tap to focus.</div>
   </div>
 
   <div class="group">
@@ -699,8 +735,10 @@ select.sel {
     followSuspended = false;  // re-enable following when a focus is chosen
   });
 
-  // Collapse dashboard
+  // Collapse dashboard (hamburger opens, × closes; start closed on phones)
   $("toggleDash").addEventListener("click", () => $("dash").classList.remove("collapsed"));
+  $("closeDash").addEventListener("click", () => $("dash").classList.add("collapsed"));
+  if (window.matchMedia("(max-width: 640px)").matches) $("dash").classList.add("collapsed");
   document.addEventListener("keydown", e => {
     if (e.key === "h") $("dash").classList.toggle("collapsed");
     if (e.key === "0") { viewSpin = 0; viewTilt = DEFAULT_TILT; }  // reset view
@@ -750,10 +788,80 @@ select.sel {
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.12 : 0.89;
     const z = Math.max(0.2, Math.min(4, ZOOM * factor));
-    ZOOM = z;
+    setZoom(z);
+  }, { passive: false });
+
+  function setZoom(z        )       {
+    ZOOM = Math.max(0.2, Math.min(4, z));
     const s = $                  ("s_zoom");
-    s.value = String(Math.round(z * 100));
+    s.value = String(Math.round(ZOOM * 100));
     s.dispatchEvent(new Event("input"));
+  }
+
+  // ----------------------------- Touch -----------------------------
+  // 1 finger  → pan (tap = focus a body)
+  // 2 fingers → pinch to zoom + drag to tilt (vertical) / spin (horizontal)
+  let touchMode                             = "none";
+  let touchLast              = null;   // last finger / two-finger midpoint
+  let tapStart              = null;
+  let touchMoved = false;
+  let pinchDist = 0;
+
+  function midpoint(t           )       {
+    return [(t[0].clientX + t[1].clientX) / 2, (t[0].clientY + t[1].clientY) / 2];
+  }
+  function spread(t           )         {
+    return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  }
+
+  canvas.addEventListener("touchstart", e => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      touchMode = "pan"; touchMoved = false;
+      touchLast = [e.touches[0].clientX, e.touches[0].clientY];
+      tapStart = touchLast;
+    } else if (e.touches.length >= 2) {
+      touchMode = "gesture"; touchMoved = true;
+      touchLast = midpoint(e.touches);
+      pinchDist = spread(e.touches);
+    }
+  }, { passive: false });
+
+  canvas.addEventListener("touchmove", e => {
+    e.preventDefault();
+    const last = touchLast;
+    if (!last) return;
+
+    if (touchMode === "pan" && e.touches.length === 1) {
+      const x = e.touches[0].clientX, y = e.touches[0].clientY;
+      const dx = x - last[0], dy = y - last[1];
+      if (Math.abs(dx) + Math.abs(dy) > 6) touchMoved = true;
+      const sdx = dx, sdy = dy / Math.cos(viewTilt);
+      const cs = Math.cos(viewSpin), sn = Math.sin(viewSpin);
+      cam.x -= (sdx * cs + sdy * sn) / ZOOM;
+      cam.y -= (-sdx * sn + sdy * cs) / ZOOM;
+      followSuspended = true;
+      if (followTimer !== null) clearTimeout(followTimer);
+      followTimer = window.setTimeout(() => (followSuspended = false), 1200);
+      touchLast = [x, y];
+    } else if (touchMode === "gesture" && e.touches.length >= 2) {
+      const mid = midpoint(e.touches), dist = spread(e.touches);
+      if (pinchDist > 0) setZoom(ZOOM * (dist / pinchDist));
+      pinchDist = dist;
+      const dmx = mid[0] - last[0], dmy = mid[1] - last[1];
+      viewSpin += dmx * 0.005;
+      viewTilt = Math.max(0, Math.min(1.45, viewTilt + dmy * 0.005));
+      touchLast = mid;
+    }
+  }, { passive: false });
+
+  canvas.addEventListener("touchend", e => {
+    if (touchMode === "pan" && !touchMoved && tapStart) pickBody(tapStart[0], tapStart[1]);
+    if (e.touches.length === 0) { touchMode = "none"; touchLast = null; }
+    else if (e.touches.length === 1) {
+      touchMode = "pan"; touchMoved = true;  // continuing after a gesture isn't a tap
+      touchLast = [e.touches[0].clientX, e.touches[0].clientY];
+    }
   }, { passive: false });
 
   function pickBody(sx        , sy        )       {

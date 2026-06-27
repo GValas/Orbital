@@ -14,7 +14,7 @@ const BODY = `
 <canvas id="scene"></canvas>
 
 <div id="dash">
-  <div class="title"><span class="dot"></span><h1>Orbital</h1></div>
+  <div class="title"><span class="dot"></span><h1>Orbital</h1><button id="closeDash" aria-label="Close panel">×</button></div>
   <div class="subtitle">An interactive N-body solar system. Tune the physics and watch orbits respond.</div>
 
   <div class="group">
@@ -56,7 +56,7 @@ const BODY = `
   <div class="group">
     <div class="group-label">Focus body</div>
     <select class="sel" id="sel_focus"></select>
-    <div class="hint">Drag to pan · Scroll to zoom · Click a body to focus &middot; <b>Both buttons drag to tilt/spin</b> &middot; Press <b>0</b> to reset view.</div>
+    <div class="hint">Drag to pan · Scroll to zoom · Click a body to focus &middot; <b>Both buttons drag to tilt/spin</b> &middot; Press <b>0</b> to reset view.<br><b>Touch:</b> drag to pan &middot; pinch to zoom &middot; two fingers to tilt/spin &middot; tap to focus.</div>
   </div>
 
   <div class="group">
@@ -84,7 +84,7 @@ export function renderHTML({ css, js }: RenderInput): string {
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Orbital — Solar System Simulator</title>
 <style>
 ${css.trim()}

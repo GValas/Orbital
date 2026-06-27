@@ -8,14 +8,24 @@
   --text-dim: #8b93b5;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; overflow: hidden; background: var(--bg); }
+html, body { height: 100%; overflow: hidden; background: var(--bg); overscroll-behavior: none; }
 body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
 }
-#scene { position: fixed; inset: 0; display: block; cursor: grab; }
+/* touch-action:none lets the canvas own all touch gestures (no page scroll/zoom) */
+#scene { position: fixed; inset: 0; display: block; cursor: grab; touch-action: none; }
 #scene:active { cursor: grabbing; }
+
+/* close (×) button in the dashboard header — only shown on mobile */
+#closeDash {
+  display: none; margin-left: auto; width: 30px; height: 30px; flex: none;
+  border-radius: 8px; border: 1px solid var(--panel-border);
+  background: rgba(255,255,255,.05); color: var(--text);
+  font-size: 22px; line-height: 1; cursor: pointer;
+  align-items: center; justify-content: center;
+}
 
 /* ---- Dashboard ---- */
 #dash {
@@ -126,3 +136,29 @@ select.sel {
   transform: translate(-50%, calc(-100% - 12px)); white-space: nowrap;
 }
 .credit { font-size: 10px; color: var(--text-dim); text-align: center; margin-top: 8px; opacity: .7; }
+
+/* ---- Mobile / touch ---- */
+@media (max-width: 640px) {
+  #dash {
+    width: min(330px, calc(100vw - 20px));
+    top: 12px; left: 12px; padding: 14px 14px 10px; border-radius: 14px;
+    max-height: calc(100dvh - 24px);
+  }
+  #toggleDash { top: 12px; left: 12px; }
+  #closeDash { display: flex; }
+
+  /* larger tap targets */
+  input[type=range] { height: 6px; }
+  input[type=range]::-webkit-slider-thumb { width: 22px; height: 22px; }
+  input[type=range]::-moz-range-thumb { width: 22px; height: 22px; }
+  button.b { padding: 11px 10px; font-size: 13px; }
+  .toggle-row { padding: 7px 0; }
+  .switch { width: 46px; height: 26px; }
+  .slider-sw::before { height: 20px; width: 20px; }
+  .switch input:checked + .slider-sw::before { transform: translateX(20px); }
+
+  #readout {
+    bottom: 10px; right: 10px; min-width: 0; padding: 8px 11px;
+    font-size: 11px; line-height: 1.6; max-width: 48vw;
+  }
+}

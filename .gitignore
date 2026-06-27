@@ -2,3 +2,5 @@ node_modules/
 *.log
 .DS_Store
 .claude/
+bundle/
+bundle.tar.gz
