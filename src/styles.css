@@ -18,14 +18,16 @@ body {
 #scene { position: fixed; inset: 0; display: block; cursor: grab; touch-action: none; }
 #scene:active { cursor: grabbing; }
 
-/* close (×) button in the dashboard header — only shown on mobile */
+/* fold (×) button in the dashboard header — folds the menu away */
 #closeDash {
-  display: none; margin-left: auto; width: 30px; height: 30px; flex: none;
+  display: flex; margin-left: auto; width: 28px; height: 28px; flex: none;
   border-radius: 8px; border: 1px solid var(--panel-border);
-  background: rgba(255,255,255,.05); color: var(--text);
-  font-size: 22px; line-height: 1; cursor: pointer;
+  background: rgba(255,255,255,.05); color: var(--text-dim);
+  font-size: 20px; line-height: 1; cursor: pointer;
   align-items: center; justify-content: center;
+  transition: background .15s, color .15s;
 }
+#closeDash:hover { background: rgba(122,162,255,.16); color: var(--text); }
 
 /* ---- Dashboard ---- */
 #dash {
@@ -145,7 +147,6 @@ select.sel {
     max-height: calc(100dvh - 24px);
   }
   #toggleDash { top: 12px; left: 12px; }
-  #closeDash { display: flex; }
 
   /* larger tap targets */
   input[type=range] { height: 6px; }

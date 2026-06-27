@@ -35,7 +35,8 @@ if (typeof strip !== "function") {
 const js = strip(mainTs, { mode: "strip" });
 
 // ---- Assemble & write ------------------------------------------------------
-const html = renderHTML({ css, js });
+const builtAt = new Date().toISOString().replace("T", " ").slice(0, 16) + " UTC";
+const html = renderHTML({ css, js, builtAt });
 const outPath = join(root, "index.html");
 writeFileSync(outPath, html, "utf8");
 
