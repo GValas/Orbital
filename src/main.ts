@@ -740,7 +740,8 @@
     c.checked = on;
     c.dispatchEvent(new Event("change"));  // drives the show* flag
   }
-  function resetDefaults(): void {
+  // Reset all the dashboard controls (sliders, toggles, view, pause) to defaults.
+  function resetControls(): void {
     setRange("s_speed", 10);   // 0.10×
     setRange("s_grav", 100);   // 1.00×
     setRange("s_sun", 100);    // 1.00×
@@ -751,13 +752,14 @@
     setToggle("t_realscale", false);
     setToggle("t_collide", true);
     setToggle("t_rings", true);
-    flashes.length = 0;
     viewSpin = 0; viewTilt = DEFAULT_TILT; // default perspective
     if (paused) pauseBtn.click();         // resume if paused
-    cam.focus = 0;                        // Sun
-    selected = 0;
-    simTime = 0;
     followSuspended = false;
+  }
+  function resetDefaults(): void {
+    resetControls();
+    flashes.length = 0;
+    cam.focus = 0; selected = 0; simTime = 0;
     makeBodies();
     buildFocusList();
   }
@@ -797,7 +799,7 @@
     });
     buildFocusList();
   });
-  $("b_random").addEventListener("click", makeRandomSystem);
+  $("b_random").addEventListener("click", () => { resetControls(); makeRandomSystem(); });
   // Launch a probe from Earth on a prograde escape trajectory (full N-body, so
   // it can gain gravity assists from the planets it passes).
   $("b_voyager").addEventListener("click", () => {
