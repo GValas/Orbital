@@ -110,17 +110,31 @@
   }
 
   // --------------------------- Physics -----------------------------
-  // Leapfrog-style integration with fixed small substeps for stability.
+  // Hybrid model. Sun + planets + comets interact via true all-pairs N-body.
+  // Moons, however, sit far outside their planet's Hill sphere at this
+  // compressed visual scale, so under full N-body the Sun would dominate and
+  // they'd never orbit their planet. Instead each moon is integrated in its
+  // parent's accelerating frame: it feels the parent's gravity plus inherits
+  // the parent's external (Sun + planets) acceleration, so it cleanly circles
+  // the planet while the planet still does real N-body around the Sun.
+  function massOf(b: Body): number {
+    return b.i === 0 ? b.mass * SUN_SCALE : b.mass;
+  }
+
   function step(dt: number): void {
     const G = BASE_G * GRAV_SCALE;
     const n = bodies.length;
     const ax = new Float64Array(n), ay = new Float64Array(n);
+
+    // Pass 1: full N-body among the non-moon bodies.
     for (let a = 0; a < n; a++) {
       const A = bodies[a];
-      const Amass = A.i === 0 ? A.mass * SUN_SCALE : A.mass;
+      if (A.isMoon) continue;
+      const Amass = massOf(A);
       for (let b = a + 1; b < n; b++) {
         const B = bodies[b];
-        const Bmass = B.i === 0 ? B.mass * SUN_SCALE : B.mass;
+        if (B.isMoon) continue;
+        const Bmass = massOf(B);
         const dx = B.x - A.x, dy = B.y - A.y;
         let d2 = dx * dx + dy * dy;
         d2 += 4;                                  // softening: avoid singularities
@@ -131,6 +145,22 @@
         ax[b] -= fx * Amass; ay[b] -= fy * Amass;
       }
     }
+
+    // Pass 2: each moon = parent's acceleration + gravity toward the parent.
+    for (let k = 0; k < n; k++) {
+      const m = bodies[k];
+      if (!m.isMoon || m.parent === null) continue;
+      const p = bodies[m.parent];
+      ax[k] = ax[m.parent];                       // carried along the planet's orbit
+      ay[k] = ay[m.parent];
+      const dx = p.x - m.x, dy = p.y - m.y;
+      let d2 = dx * dx + dy * dy;
+      d2 += 1;
+      const inv = 1 / Math.sqrt(d2);
+      const f = G * p.mass * inv / d2;            // bound only to the parent planet
+      ax[k] += f * dx; ay[k] += f * dy;
+    }
+
     for (let k = 0; k < n; k++) {
       const b = bodies[k];
       b.vx += ax[k] * dt; b.vy += ay[k] * dt;
