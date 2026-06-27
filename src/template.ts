@@ -51,6 +51,8 @@ const BODY = `
       <label class="switch"><input type="checkbox" id="t_labels" checked><span class="slider-sw"></span></label></div>
     <div class="toggle-row"><label for="t_realscale">Realistic scale</label>
       <label class="switch"><input type="checkbox" id="t_realscale"><span class="slider-sw"></span></label></div>
+    <div class="toggle-row"><label for="t_collide">Collisions (merge)</label>
+      <label class="switch"><input type="checkbox" id="t_collide" checked><span class="slider-sw"></span></label></div>
   </div>
 
   <div class="group">

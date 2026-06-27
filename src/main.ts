@@ -83,9 +83,12 @@
   ];
 
   let bodies: Body[] = [];
+  let nextId = 0;                         // stable id source for new bodies
+  const bodyById = (id: number): Body | undefined => bodies.find(b => b.i === id);
   let GRAV_SCALE = 1, TIME_SCALE = 1, SUN_SCALE = 1, ZOOM = 1;
   let REAL_SCALE = false;
   let paused = false;
+  let collisions = true;                  // merge bodies on contact
 
   function makeBodies(): void {
     bodies = DEFS.map((d, i): Body => ({
@@ -93,10 +96,11 @@
       mass: d[4], parent: d[5], isMoon: d[6],
       x: 0, y: 0, vx: 0, vy: 0, trail: [], extra: false,
     }));
+    nextId = bodies.length;  // ids 0..n-1 are taken by the DEFS rows
     // Place each body and give it a circular orbital velocity about its parent.
     for (const b of bodies) {
       if (b.parent === null) { b.x = 0; b.y = 0; b.vx = 0; b.vy = 0; continue; }
-      const p = bodies[b.parent];
+      const p = bodyById(b.parent)!;
       const ang = Math.random() * Math.PI * 2;
       const r = b.distAU * AU;
       b.x = p.x + Math.cos(ang) * r;
@@ -125,6 +129,8 @@
     const G = BASE_G * GRAV_SCALE;
     const n = bodies.length;
     const ax = new Float64Array(n), ay = new Float64Array(n);
+    const idxOf = new Map<number, number>();
+    for (let k = 0; k < n; k++) idxOf.set(bodies[k].i, k);
 
     // Pass 1: full N-body among the non-moon bodies.
     for (let a = 0; a < n; a++) {
@@ -150,14 +156,16 @@
     for (let k = 0; k < n; k++) {
       const m = bodies[k];
       if (!m.isMoon || m.parent === null) continue;
-      const p = bodies[m.parent];
-      ax[k] = ax[m.parent];                       // carried along the planet's orbit
-      ay[k] = ay[m.parent];
+      const pIdx = idxOf.get(m.parent);
+      if (pIdx === undefined) continue;           // parent gone (mid-merge)
+      const p = bodies[pIdx];
+      ax[k] = ax[pIdx];                           // carried along the parent's orbit
+      ay[k] = ay[pIdx];
       const dx = p.x - m.x, dy = p.y - m.y;
       let d2 = dx * dx + dy * dy;
       d2 += 1;
       const inv = 1 / Math.sqrt(d2);
-      const f = G * p.mass * inv / d2;            // bound only to the parent planet
+      const f = G * massOf(p) * inv / d2;         // bound only to the parent body
       ax[k] += f * dx; ay[k] += f * dy;
     }
 
@@ -169,6 +177,49 @@
       const b = bodies[k];
       b.x += b.vx * dt; b.y += b.vy * dt;
     }
+  }
+
+  // ------------------------- Collisions ----------------------------
+  // Accretion: when two bodies overlap they merge into one, conserving
+  // momentum. The more massive body survives and grows; the other is removed.
+  interface Flash { x: number; y: number; age: number; max: number; r: number; }
+  const flashes: Flash[] = [];
+
+  function resolveCollisions(): void {
+    let merged = false, again = true;
+    while (again) {
+      again = false;
+      for (let a = 0; a < bodies.length && !again; a++) {
+        for (let b = a + 1; b < bodies.length; b++) {
+          const A = bodies[a], B = bodies[b];
+          const dx = B.x - A.x, dy = B.y - A.y;
+          const rs = A.radius + B.radius;
+          if (dx * dx + dy * dy <= rs * rs) {
+            mergeBodies(A, B);
+            merged = true; again = true;   // restart: the array changed
+            break;
+          }
+        }
+      }
+    }
+    if (merged) buildFocusList();
+  }
+
+  function mergeBodies(A: Body, B: Body): void {
+    const survivor = A.mass >= B.mass ? A : B;
+    const gone = survivor === A ? B : A;
+    const m = A.mass + B.mass;
+    survivor.x = (A.mass * A.x + B.mass * B.x) / m;
+    survivor.y = (A.mass * A.y + B.mass * B.y) / m;
+    survivor.vx = (A.mass * A.vx + B.mass * B.vx) / m;   // momentum conserved
+    survivor.vy = (A.mass * A.vy + B.mass * B.vy) / m;
+    survivor.radius = Math.cbrt(A.radius ** 3 + B.radius ** 3);  // volume-preserving
+    survivor.mass = m;
+    // Moons of the absorbed body are inherited by the survivor.
+    for (const x of bodies) if (x.parent === gone.i) x.parent = survivor.i;
+    bodies.splice(bodies.indexOf(gone), 1);
+    if (cam.focus === gone.i) cam.focus = survivor.i;
+    flashes.push({ x: survivor.x, y: survivor.y, age: 0, max: 0.5, r: survivor.radius });
   }
 
   // --------------------------- Camera ------------------------------
@@ -244,7 +295,8 @@
       ctx.lineWidth = 1;
       for (const b of bodies) {
         if (b.parent === null || b.extra) continue;
-        const p = bodies[b.parent];
+        const p = bodyById(b.parent);
+        if (!p) continue;
         const dx = b.x - p.x, dy = b.y - p.y;
         const r = Math.sqrt(dx * dx + dy * dy);
         ctx.strokeStyle = b.isMoon ? "rgba(160,170,200,0.10)" : "rgba(140,160,230,0.16)";
@@ -326,6 +378,18 @@
       }
     }
 
+    // collision flashes — expanding fading rings
+    for (const fl of flashes) {
+      const [sx, sy] = worldToScreen(fl.x, fl.y);
+      const t = fl.age / fl.max;
+      const rad = (fl.r + 6) * (1 + t * 3) * Math.sqrt(ZOOM);
+      ctx.globalAlpha = (1 - t) * 0.8;
+      ctx.strokeStyle = "#ffd9a0";
+      ctx.lineWidth = 2 * (1 - t) + 0.5;
+      ctx.beginPath(); ctx.arc(sx, sy, rad, 0, 7); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
     drawReadout();
   }
 
@@ -337,15 +401,17 @@
     return m.toFixed(3);
   }
   function drawReadout(): void {
-    const f = bodies[cam.focus] || bodies[0];
+    const f = bodyById(cam.focus) || bodies[0];
     let html = `<div class="name">${f.name}</div>`;
     const speed = Math.sqrt(f.vx * f.vx + f.vy * f.vy);
     html += `Mass: <b>${fmtMass(f.mass)}</b> M⊕<br>`;
     html += `Speed: <b>${speed.toFixed(1)}</b> u/s<br>`;
     if (f.parent !== null) {
-      const p = bodies[f.parent];
-      const d = Math.hypot(f.x - p.x, f.y - p.y) / AU;
-      html += `Dist to ${p.name}: <b>${d.toFixed(2)}</b> AU<br>`;
+      const p = bodyById(f.parent);
+      if (p) {
+        const d = Math.hypot(f.x - p.x, f.y - p.y) / AU;
+        html += `Dist to ${p.name}: <b>${d.toFixed(2)}</b> AU<br>`;
+      }
     }
     html += `<span style="color:var(--text-dim)">Bodies: ${bodies.length} · G ${GRAV_SCALE.toFixed(2)}× · ${TIME_SCALE.toFixed(1)}×t</span>`;
     readoutEl.innerHTML = html;
@@ -357,11 +423,18 @@
     let dt = (now - lastT) / 1000; lastT = now;
     dt = Math.min(dt, 0.05);
 
+    for (let i = flashes.length - 1; i >= 0; i--) {
+      flashes[i].age += dt;
+      if (flashes[i].age >= flashes[i].max) flashes.splice(i, 1);
+    }
+
     if (!paused && TIME_SCALE > 0) {
       const simDt = dt * TIME_SCALE;
       const sub = Math.min(40, Math.max(1, Math.ceil(TIME_SCALE)));
       const h = simDt / sub;
       for (let s = 0; s < sub; s++) step(h);
+
+      if (collisions) resolveCollisions();
 
       for (const b of bodies) {
         if (b.parent === null) continue;
@@ -372,7 +445,7 @@
     }
 
     // follow focus (unless the user is actively panning the view)
-    const f = bodies[cam.focus];
+    const f = bodyById(cam.focus);
     if (f && !followSuspended) {
       cam.x += (f.x - cam.x) * 0.12;
       cam.y += (f.y - cam.y) * 0.12;
@@ -409,6 +482,7 @@
   $<HTMLInputElement>("t_orbits").addEventListener("change", e => showOrbits = (e.target as HTMLInputElement).checked);
   $<HTMLInputElement>("t_labels").addEventListener("change", e => showLabels = (e.target as HTMLInputElement).checked);
   $<HTMLInputElement>("t_realscale").addEventListener("change", e => REAL_SCALE = (e.target as HTMLInputElement).checked);
+  $<HTMLInputElement>("t_collide").addEventListener("change", e => collisions = (e.target as HTMLInputElement).checked);
 
   const pauseBtn = $<HTMLButtonElement>("b_pause");
   pauseBtn.addEventListener("click", () => {
@@ -438,6 +512,8 @@
     setToggle("t_orbits", true);
     setToggle("t_labels", true);
     setToggle("t_realscale", false);
+    setToggle("t_collide", true);
+    flashes.length = 0;
     viewSpin = 0; viewTilt = DEFAULT_TILT; // default perspective
     if (paused) pauseBtn.click();         // resume if paused
     cam.focus = 0;                        // Sun
@@ -469,7 +545,7 @@
     const mu = BASE_G * bodies[0].mass * SUN_SCALE;
     const v = Math.sqrt(mu / r) * 1.05 * Math.sqrt(Math.max(0.2, GRAV_SCALE));
     bodies.push({
-      i: bodies.length, name: "Comet " + cometN, color: "#9fe8ff",
+      i: nextId++, name: "Comet " + cometN, color: "#9fe8ff",
       distAU: 5.5, radius: 2.2, mass: 0.0001, parent: 0, isMoon: false,
       x, y, vx: Math.cos(toSun) * v, vy: Math.sin(toSun) * v, trail: [], extra: true,
     });
@@ -480,11 +556,11 @@
   const selFocus = $<HTMLSelectElement>("sel_focus");
   function buildFocusList(): void {
     selFocus.innerHTML = "";
-    bodies.forEach((b, i) => {
+    for (const b of bodies) {
       const o = document.createElement("option");
-      o.value = String(i); o.textContent = (b.isMoon ? "  ↳ " : "") + b.name;
+      o.value = String(b.i); o.textContent = (b.isMoon ? "  ↳ " : "") + b.name;
       selFocus.appendChild(o);
-    });
+    }
     selFocus.value = String(cam.focus);
   }
   selFocus.addEventListener("change", e => {

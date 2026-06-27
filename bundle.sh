@@ -1,56 +1,69 @@
 #!/usr/bin/env bash
 #
-# bundle.sh — collect everything needed to deploy Orbital with Docker into a
-# single folder (plus a .tar.gz), ready to copy to a server / Unraid NAS.
+# bundle.sh — produce a minimal, runtime-only Docker deployment bundle.
 #
 #   ./bundle.sh              → ./bundle/  and  ./bundle.tar.gz
 #   ./bundle.sh out/orbital  → custom output directory
 #
-# The bundle supports both deployment paths:
-#   • build path  — `docker compose up -d`  (Dockerfile rebuilds index.html)
-#   • mount path  — bind-mount index.html into a stock nginx (no build)
+# The bundle contains ONLY what's needed to serve the app — the prebuilt page,
+# the nginx config, and a single-stage Dockerfile that copies the page in.
+# No TypeScript sources, no Node, no build step on the target host.
 #
 set -euo pipefail
 cd "$(dirname "$0")"
 
 OUT="${1:-${BUNDLE_DIR:-bundle}}"
 
-# Files needed for the Docker build context + a ready-made index.html so the
-# bundle also works as a no-build bind-mount.
-FILES=(
-  Dockerfile
-  docker-compose.yml
-  .dockerignore
-  docker.sh
-  package.json
-  build.ts
-  deploy/nginx.conf
-  src/main.ts
-  src/styles.css
-  src/template.ts
-  index.html
-)
-
 # Refresh index.html so the bundled copy matches the current sources.
 echo "› Regenerating index.html ..."
 ./build.sh >/dev/null
 
-echo "› Staging bundle in '$OUT/' ..."
+echo "› Staging runtime bundle in '$OUT/' ..."
 rm -rf "$OUT"
 mkdir -p "$OUT"
-for f in "${FILES[@]}"; do
-  if [ ! -e "$f" ]; then echo "Error: missing '$f'" >&2; exit 1; fi
-  mkdir -p "$OUT/$(dirname "$f")"
-  cp "$f" "$OUT/$f"
-done
+
+# The two real artifacts.
+cp index.html        "$OUT/index.html"
+cp deploy/nginx.conf "$OUT/nginx.conf"
+
+# A tiny single-stage image: stock nginx + the prebuilt page. No build tooling.
+cat > "$OUT/Dockerfile" <<'DOCKERFILE'
+# Runtime-only image — serves the prebuilt index.html with a tiny nginx.
+FROM nginx:1.27-alpine
+LABEL org.opencontainers.image.title="Orbital" \
+      org.opencontainers.image.source="https://github.com/GValas/Orbital"
+RUN rm -f /etc/nginx/conf.d/default.conf
+COPY nginx.conf  /etc/nginx/conf.d/orbital.conf
+COPY index.html  /usr/share/nginx/html/index.html
+EXPOSE 80
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -q -O /dev/null http://localhost/ || exit 1
+DOCKERFILE
+
+cat > "$OUT/docker-compose.yml" <<'COMPOSE'
+# Production deployment for Orbital (runtime-only).
+# Works with `docker compose up -d` and Unraid's Compose Manager plugin.
+services:
+  orbital:
+    build: .
+    image: orbital:latest
+    container_name: orbital
+    restart: unless-stopped
+    ports:
+      - "${ORBITAL_PORT:-8088}:80"
+COMPOSE
 
 # Tarball next to the folder for easy transfer.
 base="$(basename "$OUT")"
 ( cd "$OUT/.." && tar czf "$base.tar.gz" "$base" )
 
-echo "✓ Bundle ready:"
-echo "    folder : $OUT/"
-echo "    tarball: ${OUT}.tar.gz  ($(du -h "${OUT}.tar.gz" | cut -f1))"
+echo "✓ Runtime bundle ready ($(find "$OUT" -type f | wc -l | tr -d ' ') files):"
+find "$OUT" -type f | sort | sed 's/^/    /'
+echo "    tarball: ${OUT}.tar.gz ($(du -h "${OUT}.tar.gz" | cut -f1))"
 echo
 echo "Deploy on the target host:"
 echo "    tar xzf $base.tar.gz && cd $base && docker compose up -d"
+echo "Or without building an image (pure bind-mount):"
+echo "    docker run -d --name orbital --restart unless-stopped -p 8088:80 \\"
+echo "      -v \"\$PWD/index.html:/usr/share/nginx/html/index.html:ro\" \\"
+echo "      -v \"\$PWD/nginx.conf:/etc/nginx/conf.d/default.conf:ro\" nginx:1.27-alpine"
