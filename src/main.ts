@@ -593,7 +593,7 @@
   }
   function bodyKind(b: Body): string {
     if (b.i === 0) return "Star";
-    if (b.extra) return "Comet";
+    if (b.extra) return b.name.startsWith("Comet") ? "Comet" : "Probe";
     if (b.isMoon) return "Moon";
     return "Planet";
   }
@@ -798,6 +798,25 @@
     buildFocusList();
   });
   $("b_random").addEventListener("click", makeRandomSystem);
+  // Launch a probe from Earth on a prograde escape trajectory (full N-body, so
+  // it can gain gravity assists from the planets it passes).
+  $("b_voyager").addEventListener("click", () => {
+    const earth = bodies.find(b => b.name === "Earth");
+    if (!earth) return;                       // e.g. in a random system there is no Earth
+    const sp = Math.hypot(earth.vx, earth.vy) || 1;
+    const off = earth.radius + 8;             // start just ahead of Earth to avoid merging
+    const id = nextId++;
+    bodies.push({
+      i: id, name: "Voyager 1", color: "#e8eef7",
+      distAU: Math.hypot(earth.x, earth.y) / AU, radius: 1.6, mass: 0.00001,
+      parent: 0, isMoon: false, extra: true,
+      x: earth.x + (earth.vx / sp) * off, y: earth.y + (earth.vy / sp) * off,
+      vx: earth.vx * 1.5, vy: earth.vy * 1.5,  // prograde boost → heliocentric escape
+      trail: [],
+    });
+    selected = id;                            // show the probe's card
+    buildFocusList();
+  });
 
   // Focus dropdown
   const selFocus = $<HTMLSelectElement>("sel_focus");

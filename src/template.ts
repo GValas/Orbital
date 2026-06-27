@@ -75,6 +75,7 @@ const BODY = `
     </div>
     <div class="btn-row" style="margin-top:6px;">
       <button class="b" id="b_random">🌟 Random system</button>
+      <button class="b" id="b_voyager">🛰️ Voyager 1</button>
     </div>
   </div>
 
