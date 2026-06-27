@@ -572,9 +572,15 @@
     s.value = "0"; s.dispatchEvent(new Event("input"));
   });
   $("b_kick").addEventListener("click", () => {
+    // Random impulse scaled to each body's orbital speed about its parent, so
+    // the kick is always a meaningful fraction (orbits turn eccentric/chaotic).
     for (const b of bodies) {
       if (b.parent === null) continue;
-      const a = Math.random() * Math.PI * 2, m = 8 + Math.random() * 16;
+      const p = bodyById(b.parent);
+      const rvx = b.vx - (p ? p.vx : 0), rvy = b.vy - (p ? p.vy : 0);
+      const orbitalSpeed = Math.hypot(rvx, rvy);
+      const a = Math.random() * Math.PI * 2;
+      const m = orbitalSpeed * (0.15 + Math.random() * 0.35);  // 15–50% of orbital speed
       b.vx += Math.cos(a) * m; b.vy += Math.sin(a) * m;
     }
   });
