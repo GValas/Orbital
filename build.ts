@@ -35,7 +35,16 @@ if (typeof strip !== "function") {
 const js = strip(mainTs, { mode: "strip" });
 
 // ---- Assemble & write ------------------------------------------------------
-const builtAt = new Date().toISOString().replace("T", " ").slice(0, 16) + " UTC";
+const parts = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Paris",
+  year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", hour12: false,
+  timeZoneName: "short",
+}).formatToParts(new Date());
+const part = (t: string): string => parts.find(p => p.type === t)?.value ?? "";
+const builtAt =
+  `${part("year")}-${part("month")}-${part("day")} ` +
+  `${part("hour")}:${part("minute")} ${part("timeZoneName")}`;
 const html = renderHTML({ css, js, builtAt });
 const outPath = join(root, "index.html");
 writeFileSync(outPath, html, "utf8");
