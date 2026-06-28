@@ -18,6 +18,19 @@ no runtime dependencies.
   so they orbit their planet stably at the compressed visual scale.
 - **Collisions** — overlapping bodies merge (momentum-conserving accretion)
   with a flash; toggleable.
+- **Add stars with the mouse** — click to drop a heavy star, or drag to fling a
+  fly-by; the whole system feels its gravity and visibly deforms. Mass set by a
+  slider. Right-click any body to delete it; **Undo** (or `z`) removes the last
+  spawned body.
+- **Tidal disruption** (toggle) — a body that strays inside a star's Roche zone
+  shatters into a debris stream instead of merging.
+- **Scenario presets** — Binary star · Circumbinary planets · Stellar fly-by ·
+  Chaos cluster, each seeded with physically sensible orbital speeds.
+- **Diagnostics overlays** — gravitational-potential heatmap, per-body velocity
+  vectors, and the system barycenter marker.
+- **Barnes-Hut** quadtree kicks in automatically for large body counts (e.g.
+  debris fields) so the N-body sum stays fast; the exact all-pairs sum runs
+  below the threshold. Adaptive sub-stepping tightens near close encounters.
 - **Random system generator** — a star with up to 10 planets, each with up to
   4 moons (also resets all controls to defaults).
 - **Launch Voyager 1** — a probe leaves Earth on a real escape trajectory and
@@ -38,16 +51,19 @@ no runtime dependencies.
 | **Time speed** | 0–0.2× simulation rate (default 0.10×) |
 | **Gravity (G)** | 0–3× the gravitational constant — destabilizes or tightens orbits |
 | **Sun mass** | 0.1–3× — reshapes every heliocentric orbit |
-| **Zoom** + view toggles | trails, orbit paths, labels, realistic scale, collisions, belts |
+| **Zoom** + view toggles | trails, paths, labels, real scale, collisions, belts, trajectory, field, vectors, barycenter, tides |
+| **Star mass** | mass of stars dropped with **☀️ Add star** (0.1–2 M☉) |
 | **Focus body** | camera follows any planet or moon |
-| **Experiments** | Zero-G · Kick planets · Add comet · 🌟 Random system · 🛰️ Launch Voyager 1 |
+| **Experiments** | Zero-G · Kick planets · Add comet · 🌟 Random system · 🛰️ Voyager 1 · 🎯 Aim & launch · ☀️ Add star · ↶ Undo · scenario presets |
 | **Reset** | restore the real solar system and all defaults |
 
 - **Mouse:** drag to pan · scroll to zoom · **click a body to show its info
-  card** · hold **both buttons** and drag to tilt/spin the plane.
+  card** · **right-click a body to delete it** · hold **both buttons** and drag
+  to tilt/spin the plane.
 - **Touch:** drag to pan · pinch to zoom · two fingers to tilt/spin · tap a
   body for its card.
-- **Keys:** `space` play/pause · `h` fold the menu · `0` reset the view.
+- **Keys:** `space` play/pause · `h` fold the menu · `0` reset the view ·
+  `z` undo the last added body.
 
 The menu starts folded — click **☰** to open it; clicking outside folds it again.
 

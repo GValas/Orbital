@@ -61,17 +61,29 @@ const BODY = `
         <label class="switch"><input type="checkbox" id="t_rings" checked><span class="slider-sw"></span></label></div>
       <div class="toggle-row"><label for="t_predict">Trajectory</label>
         <label class="switch"><input type="checkbox" id="t_predict"><span class="slider-sw"></span></label></div>
+      <div class="toggle-row"><label for="t_field">Field</label>
+        <label class="switch"><input type="checkbox" id="t_field"><span class="slider-sw"></span></label></div>
+      <div class="toggle-row"><label for="t_vectors">Vectors</label>
+        <label class="switch"><input type="checkbox" id="t_vectors"><span class="slider-sw"></span></label></div>
+      <div class="toggle-row"><label for="t_bary">Barycenter</label>
+        <label class="switch"><input type="checkbox" id="t_bary"><span class="slider-sw"></span></label></div>
+      <div class="toggle-row"><label for="t_tides">Tides</label>
+        <label class="switch"><input type="checkbox" id="t_tides"><span class="slider-sw"></span></label></div>
     </div>
   </div>
 
   <div class="group">
     <div class="group-label">Focus body</div>
     <select class="sel" id="sel_focus"></select>
-    <div class="hint">Drag to pan · Scroll to zoom · Click a body to focus &middot; <b>Both buttons drag to tilt/spin</b> &middot; Press <b>0</b> to reset view.<br><b>☀️ Add star:</b> arm it, then click anywhere to drop a heavy star and watch the system deform.<br><b>Touch:</b> drag to pan &middot; pinch to zoom &middot; two fingers to tilt/spin &middot; tap to focus.</div>
+    <div class="hint">Drag to pan · Scroll to zoom · Click a body to focus &middot; <b>Right-click a body to delete it</b> &middot; <b>Both buttons drag to tilt/spin</b> &middot; Press <b>0</b> to reset view, <b>z</b> to undo.<br><b>☀️ Add star:</b> arm it, then click to drop a star (or drag to fling a fly-by) and watch the system deform.<br><b>Touch:</b> drag to pan &middot; pinch to zoom &middot; two fingers to tilt/spin &middot; tap to focus.</div>
   </div>
 
   <div class="group">
     <div class="group-label">Experiments</div>
+    <div class="ctrl">
+      <div class="ctrl-head"><label>Star mass</label><span class="val" id="v_starmass">0.60 M☉</span></div>
+      <input type="range" id="s_starmass" min="10" max="200" value="60">
+    </div>
     <div class="btn-row">
       <button class="b" id="b_zerog">Zero-G</button>
       <button class="b" id="b_kick">Kick planets</button>
@@ -86,8 +98,16 @@ const BODY = `
       <button class="b" id="b_addstar">☀️ Add star</button>
     </div>
     <div class="btn-row" style="margin-top:6px;">
+      <button class="b" id="b_undo">↶ Undo</button>
       <button class="b" id="b_share">🔗 Share</button>
     </div>
+    <select class="sel" id="sel_preset" style="margin-top:8px;">
+      <option value="">✨ Load a scenario…</option>
+      <option value="binary">Binary star</option>
+      <option value="circumbinary">Circumbinary planets</option>
+      <option value="capture">Stellar fly-by</option>
+      <option value="chaos">Chaos cluster</option>
+    </select>
   </div>
 
   <div class="credit">An interactive N-body sandbox.</div>
