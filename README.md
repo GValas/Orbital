@@ -4,8 +4,9 @@ An interactive **N-body solar system simulator** with a parametric physics
 dashboard. Every body attracts every other (`F = G·m₁·m₂/r²`), so the gravity /
 mass / time controls genuinely reshape the orbits.
 
-Written in **TypeScript** and compiled into a single, dependency-free
-`index.html` by a small build script — no framework, no runtime dependencies.
+Written in **TypeScript** and compiled into a dependency-free static site
+(`dist/index.html` + `dist/app.js`) by a small build script — no framework,
+no runtime dependencies.
 
 ![Orbital — tilted view of the solar system](docs/screenshot.png)
 
@@ -56,77 +57,81 @@ Requires **Node ≥ 22.13** (24.x recommended). No `npm install` is needed to
 build — type-stripping uses Node's built-in `module.stripTypeScriptTypes`.
 
 ```bash
-./build.sh             # → writes ./index.html   (also: --open, --serve, --check)
+./build.sh             # → writes ./dist/   (also: --open, --serve, --check)
 # or:
 node build.ts
 ```
 
-Then open `index.html` in any modern browser.
+This produces a `dist/` folder with exactly two files — `index.html` (markup +
+inlined CSS) and `app.js` (the simulation). Open `dist/index.html` in any modern
+browser, or run `./build.sh --serve` to serve `dist/` at
+`http://localhost:8000`.
 
 Optional type-check: `npm install` then `npm run typecheck` (`tsc --noEmit`).
 
-## Deploy with Docker
+## Dev container
 
-A multi-stage build regenerates `index.html` from source and serves it from a
-tiny hardened nginx image (~48 MB, no Node in the final image).
+A [dev container](.devcontainer/devcontainer.json) is provided so you can build
+without installing Node locally (handy on Windows/WSL). Open the folder in
+VS Code → **Reopen in Container** (or use GitHub Codespaces); it spins up Node 24
+and runs `npm install`. Then inside the container:
 
 ```bash
-./docker.sh            # build the image and run it → http://localhost:8088
-./docker.sh stop       # stop & remove the container
-docker compose up -d   # alternative, if you have the Compose plugin
+npm run build          # → dist/
+npm run serve          # build + serve dist/ on http://localhost:8000
 ```
 
-Override port/name/image via env vars, e.g. `ORBITAL_PORT=9000 ./docker.sh`.
+## Deploy
 
-## Deploy on Unraid
+The build output is a plain static site — copy the two files in `dist/` to any
+static host (GitHub Pages, Netlify, an nginx/Caddy docroot, an S3 bucket, …).
+There is no server-side component and nothing to configure.
 
-Unraid often lacks the `docker compose` plugin, so the simplest path is a
-**bind-mount bundle** — a stock nginx serving the prebuilt page, no build step
-on the NAS.
+### NAS Unraid (rsync → nginx)
 
-1. **Make the bundle** (on your dev machine):
+For the home NAS the site is served by a plain **nginx** container and `dist/`
+is synced into it with `rsync` — **no image is built**.
 
-   ```bash
-   ./bundle.sh          # → ./bundle/  (index.html, nginx.conf, Dockerfile,
-                        #               docker-compose.yml, run.sh)
-   ```
+**Préparation (une seule fois)**
 
-2. **Copy the folder to the NAS**, e.g. to `/mnt/user/appdata/orbital/`
-   (SMB share, `scp`, or the Unraid file manager).
+1. Sur Unraid, onglet *Docker* → *Add Container* :
+   - **Name** : `orbital`
+   - **Repository** : `nginx:alpine`
+   - **Network Type** : `bridge`
+   - **Port** : host `8088` → container `80`
+   - **Path** : host `/mnt/user/appdata/orbital/site` → container
+     `/usr/share/nginx/html` (en lecture seule)
+   - Laisser tourner avec *Restart policy* : `unless-stopped`
+2. Copier `.env.deploy.example` en `.env.deploy` (non versionné) et y renseigner
+   l'hôte/chemin SSH du NAS (`NAS_HOST`, `NAS_PATH`, …).
 
-3. **Run it on the NAS** (SSH or the terminal):
+> Physics tourne déjà sur le port hôte `8087` ; Orbital utilise `8088` pour
+> éviter le conflit. Le dossier hôte (`NAS_PATH`) est créé automatiquement par
+> `deploy.sh` lors du premier déploiement, mais le bind-mount du conteneur le
+> référence dès sa création — crée le dossier ou lance un premier `deploy.sh`
+> avant de démarrer le conteneur.
 
-   ```bash
-   cd /mnt/user/appdata/orbital
-   ./run.sh             # removes any old container, then starts a fresh one
-   ```
+**Déployer (à chaque mise à jour)**
 
-   `run.sh` bind-mounts `index.html` + `nginx.conf` into `nginx:1.27-alpine` and
-   exposes port **8088**. It's safe to re-run (it always replaces the old
-   container). Override the port with `ORBITAL_PORT=9000 ./run.sh`.
+```bash
+npm run deploy                # build + rsync de dist/ vers le NAS
+npm run deploy -- --dry-run   # aperçu sans rien écrire
+```
 
-4. Open **`http://<your-unraid-ip>:8088`**.
-
-**Updating later:** overwrite `index.html` in that folder and refresh the
-browser — no rebuild or restart needed (it's bind-mounted). To stop:
-`docker rm -f orbital`.
-
-If you *do* have the **Compose Manager** plugin, you can instead point it at the
-bundle's `docker-compose.yml` (or run `docker compose up -d` in the folder).
+`deploy.sh` exécute `./build.sh` puis un `rsync --delete` de `dist/` vers
+`NAS_USER@NAS_HOST:NAS_PATH` via SSH. Ouvrir ensuite `http://<ip-du-nas>:8088`
+(Ctrl+F5 pour forcer le rafraîchissement).
 
 ## Project layout
 
 ```
 src/main.ts        Simulation + rendering + UI (browser TypeScript)
 src/styles.css     Dashboard / scene styling
-src/template.ts    HTML shell; inlines the CSS + compiled JS
-build.ts           Generator → strips types, writes index.html
+src/template.ts    HTML shell; inlines the CSS, links dist/app.js
+build.ts           Generator → strips types, writes dist/index.html + dist/app.js
 build.sh           Convenience wrapper (build / --open / --serve / --check)
-bundle.sh          Build a runtime-only deployment folder (for a NAS / server)
-docker.sh          Build & run the production image locally
-Dockerfile         Multi-stage image (build from source → nginx)
-deploy/nginx.conf  nginx server config used by the images
-index.html         ← GENERATED. Do not edit by hand.
+.devcontainer/     VS Code / Codespaces dev container (Node 24)
+dist/              ← GENERATED build output (gitignored). Do not edit by hand.
 ```
 
 ## Notes

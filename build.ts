@@ -1,16 +1,18 @@
 /**
- * build.ts — generates the standalone `index.html` from the TypeScript sources.
+ * build.ts — compiles the TypeScript sources into a `dist/` directory.
  *
- *   node build.ts            # writes ./index.html
+ *   node build.ts            # writes ./dist/index.html + ./dist/app.js
  *   npm run build
  *
- * Zero dependencies: type-stripping uses Node's built-in
- * `module.stripTypeScriptTypes` (Node >= 22.13 / 23.x / 24). The simulation in
- * src/main.ts uses only type annotations (no enums/namespaces/decorators), so
- * stripping is a complete and faithful transpile to browser JavaScript.
+ * The output is two files and nothing else: `index.html` (markup + inlined CSS)
+ * and `app.js` (the simulation). Zero dependencies: type-stripping uses Node's
+ * built-in `module.stripTypeScriptTypes` (Node >= 22.13 / 23.x / 24). The
+ * simulation in src/main.ts uses only type annotations (no
+ * enums/namespaces/decorators), so stripping is a complete and faithful
+ * transpile to browser JavaScript.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import mod from "node:module";
 import { renderHTML } from "./src/template.ts";
@@ -45,12 +47,18 @@ const part = (t: string): string => parts.find(p => p.type === t)?.value ?? "";
 const builtAt =
   `${part("year")}-${part("month")}-${part("day")} ` +
   `${part("hour")}:${part("minute")} ${part("timeZoneName")}`;
-const html = renderHTML({ css, js, builtAt });
-const outPath = join(root, "index.html");
-writeFileSync(outPath, html, "utf8");
+const scriptName = "app.js";
+const html = renderHTML({ css, scriptSrc: scriptName, builtAt });
 
-const kb = (html.length / 1024).toFixed(1);
-console.log(`✓ Generated index.html  (${kb} KB, ${bodyCount()} bodies, self-contained)`);
+const outDir = join(root, "dist");
+mkdirSync(outDir, { recursive: true });
+writeFileSync(join(outDir, "index.html"), html, "utf8");
+writeFileSync(join(outDir, scriptName), js, "utf8");
+
+const kb = (n: number): string => (n / 1024).toFixed(1);
+console.log(
+  `✓ Built dist/  (index.html ${kb(html.length)} KB + ${scriptName} ${kb(js.length)} KB, ${bodyCount()} bodies)`,
+);
 
 function bodyCount(): number {
   // crude count of the DEFS rows, purely for a friendlier build log

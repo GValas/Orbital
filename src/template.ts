@@ -1,12 +1,14 @@
 /**
- * HTML shell for Orbital. `renderHTML` takes the stylesheet and the
- * (type-stripped) simulation script and returns a complete, standalone
- * single-file document. Called by `build.ts`.
+ * HTML shell for Orbital. `renderHTML` takes the stylesheet and the URL of the
+ * compiled simulation script and returns the page markup. The CSS is inlined;
+ * the JavaScript is loaded from a sibling file (e.g. `app.js`) so the build
+ * emits exactly two artifacts into `dist/`. Called by `build.ts`.
  */
 
 export interface RenderInput {
   css: string;
-  js: string;
+  /** Relative URL of the compiled script, e.g. "app.js". */
+  scriptSrc: string;
   builtAt: string;
 }
 
@@ -21,8 +23,8 @@ const BODY = `
   <div class="group">
     <div class="group-label">Simulation</div>
     <div class="ctrl">
-      <div class="ctrl-head"><label>Time speed</label><span class="val" id="v_speed">0.10×</span></div>
-      <input type="range" id="s_speed" min="0" max="20" value="10">
+      <div class="ctrl-head"><label>Time speed</label><span class="val" id="v_speed">0.02×</span></div>
+      <input type="range" id="s_speed" min="0" max="20" value="2">
     </div>
     <div class="ctrl">
       <div class="ctrl-head"><label>Gravity (G)</label><span class="val" id="v_grav">1.00×</span></div>
@@ -57,13 +59,15 @@ const BODY = `
         <label class="switch"><input type="checkbox" id="t_collide" checked><span class="slider-sw"></span></label></div>
       <div class="toggle-row"><label for="t_rings">Belts</label>
         <label class="switch"><input type="checkbox" id="t_rings" checked><span class="slider-sw"></span></label></div>
+      <div class="toggle-row"><label for="t_predict">Trajectory</label>
+        <label class="switch"><input type="checkbox" id="t_predict"><span class="slider-sw"></span></label></div>
     </div>
   </div>
 
   <div class="group">
     <div class="group-label">Focus body</div>
     <select class="sel" id="sel_focus"></select>
-    <div class="hint">Drag to pan · Scroll to zoom · Click a body to focus &middot; <b>Both buttons drag to tilt/spin</b> &middot; Press <b>0</b> to reset view.<br><b>Touch:</b> drag to pan &middot; pinch to zoom &middot; two fingers to tilt/spin &middot; tap to focus.</div>
+    <div class="hint">Drag to pan · Scroll to zoom · Click a body to focus &middot; <b>Both buttons drag to tilt/spin</b> &middot; Press <b>0</b> to reset view.<br><b>☀️ Add star:</b> arm it, then click anywhere to drop a heavy star and watch the system deform.<br><b>Touch:</b> drag to pan &middot; pinch to zoom &middot; two fingers to tilt/spin &middot; tap to focus.</div>
   </div>
 
   <div class="group">
@@ -77,6 +81,13 @@ const BODY = `
       <button class="b" id="b_random">🌟 Random system</button>
       <button class="b" id="b_voyager">🛰️ Voyager 1</button>
     </div>
+    <div class="btn-row" style="margin-top:6px;">
+      <button class="b" id="b_launch">🎯 Aim &amp; launch</button>
+      <button class="b" id="b_addstar">☀️ Add star</button>
+    </div>
+    <div class="btn-row" style="margin-top:6px;">
+      <button class="b" id="b_share">🔗 Share</button>
+    </div>
   </div>
 
   <div class="credit">An interactive N-body sandbox.</div>
@@ -86,9 +97,10 @@ const BODY = `
 <div id="buildinfo">Generated from TypeScript · vanilla JS + Canvas<br>Compiled __BUILT_AT__</div>
 <div id="readout"></div>
 <div id="dayclock"></div>
-<div id="tip"></div>`;
+<div id="tip"></div>
+<div id="toast"></div>`;
 
-export function renderHTML({ css, js, builtAt }: RenderInput): string {
+export function renderHTML({ css, scriptSrc, builtAt }: RenderInput): string {
   const body = BODY.trim().replace("__BUILT_AT__", builtAt);
   return `<!DOCTYPE html>
 <!--
@@ -108,9 +120,7 @@ ${css.trim()}
 <body>
 ${body}
 
-<script>
-${js.trim()}
-</script>
+<script src="${scriptSrc}"></script>
 </body>
 </html>
 `;

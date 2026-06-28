@@ -21,16 +21,18 @@
     mass: number;          // relative to Earth = 1
     parent: number | null; // index of body it orbits, or null for the Sun
     isMoon: boolean;
+    ecc: number;           // orbital eccentricity at spawn (0 = circular)
     x: number; y: number;
     vx: number; vy: number;
     trail: Vec2[];
     extra: boolean;        // true for runtime-spawned bodies (comets)
+    isStar?: boolean;      // true for runtime-dropped stars (self-lit, glowing)
   }
 
   interface Star { x: number; y: number; r: number; a: number; tw: number; }
 
-  // [name, color, distAU, radiusPx, massEarth, parentIndex, isMoon]
-  type BodyDef = [string, string, number, number, number, number | null, boolean];
+  // [name, color, distAU(semi-major axis), radiusPx, massEarth, parentIndex, isMoon, eccentricity?]
+  type BodyDef = [string, string, number, number, number, number | null, boolean, number?];
 
   // --------------------------- Canvas ------------------------------
   const canvas = document.getElementById("scene") as HTMLCanvasElement;
@@ -62,26 +64,26 @@
   // moons). Moon orbital distances are spread for visibility, not to scale.
   const DEFS: BodyDef[] = [
     ["Sun",       "#ffcf4d",  0.00, 26,  333000, null, false],  // 0
-    ["Mercury",   "#b9a08a",  0.55,  3.0,   0.055, 0, false],   // 1
-    ["Venus",     "#e8c27a",  0.80,  5.4,   0.815, 0, false],   // 2
-    ["Earth",     "#6fb1ff",  1.10,  5.7,   1.000, 0, false],   // 3
-    ["Moon",      "#cfd3da",  0.16,  2.0,   0.012,   3, true ],
-    ["Mars",      "#e06a4a",  1.45,  4.2,   0.107, 0, false],   // 5
+    ["Mercury",   "#b9a08a",  0.55,  3.0,   0.055, 0, false, 0.21],   // 1
+    ["Venus",     "#e8c27a",  0.80,  5.4,   0.815, 0, false, 0.01],   // 2
+    ["Earth",     "#6fb1ff",  1.10,  5.7,   1.000, 0, false, 0.02],   // 3
+    ["Moon",      "#cfd3da",  0.16,  2.0,   0.012,   3, true, 0.05],
+    ["Mars",      "#e06a4a",  1.45,  4.2,   0.107, 0, false, 0.09],   // 5
     ["Phobos",    "#9a8d80",  0.10,  1.2,   0.000002, 5, true ],
     ["Deimos",    "#a89a88",  0.15,  1.1,   0.000002, 5, true ],
-    ["Jupiter",   "#d8a878",  2.30, 15.0, 317.8,   0, false],   // 8
+    ["Jupiter",   "#d8a878",  2.30, 15.0, 317.8,   0, false, 0.05],   // 8
     ["Io",        "#e8e07a",  0.30,  1.9,   0.015,   8, true ],
     ["Europa",    "#cdbfa0",  0.40,  1.7,   0.008,   8, true ],
     ["Ganymede",  "#b7a98f",  0.52,  2.3,   0.025,   8, true ],
     ["Callisto",  "#8d8378",  0.64,  2.2,   0.018,   8, true ],
-    ["Saturn",    "#e6cf9c",  3.10, 12.5,  95.2,    0, false],  // 13
+    ["Saturn",    "#e6cf9c",  3.10, 12.5,  95.2,    0, false, 0.06],  // 13
     ["Enceladus", "#eef4ff",  0.30,  1.3,   0.00002, 13, true ],
     ["Dione",     "#cdd2da",  0.36,  1.4,   0.0002,  13, true ],
     ["Rhea",      "#cfd0d4",  0.44,  1.6,   0.0004,  13, true ],
     ["Titan",     "#c8a85a",  0.55,  2.0,   0.022,   13, true ],
     ["Iapetus",   "#b8a890",  0.72,  1.6,   0.0003,  13, true ],
-    ["Uranus",    "#8fe0e0",  3.85,  9.0,  14.5,    0, false],  // 19
-    ["Neptune",   "#5a78e0",  4.55,  8.7,  17.1,    0, false],  // 20
+    ["Uranus",    "#8fe0e0",  3.85,  9.0,  14.5,    0, false, 0.05],  // 19
+    ["Neptune",   "#5a78e0",  4.55,  8.7,  17.1,    0, false, 0.01],  // 20
   ];
 
   let bodies: Body[] = [];
@@ -96,36 +98,43 @@
   function makeBodies(): void {
     bodies = DEFS.map((d, i): Body => ({
       i, name: d[0], color: d[1], distAU: d[2], radius: d[3],
-      mass: d[4], parent: d[5], isMoon: d[6],
+      mass: d[4], parent: d[5], isMoon: d[6], ecc: d[7] ?? 0,
       x: 0, y: 0, vx: 0, vy: 0, trail: [], extra: false,
     }));
     nextId = bodies.length;  // ids 0..n-1 are taken by the DEFS rows
-    // Place each body and give it a circular orbital velocity about its parent.
+    // Place each body on an (optionally eccentric) orbit about its parent.
+    // distAU is the semi-major axis a; we start every body at perihelion.
     for (const b of bodies) {
       if (b.parent === null) { b.x = 0; b.y = 0; b.vx = 0; b.vy = 0; continue; }
       const p = bodyById(b.parent)!;
       const ang = Math.random() * Math.PI * 2;
-      const r = b.distAU * AU;
-      b.x = p.x + Math.cos(ang) * r;
-      b.y = p.y + Math.sin(ang) * r;
-      // v = sqrt(G*M/r) for a circular orbit about the parent's mass
-      const mu = BASE_G * p.mass * (b.parent === 0 ? SUN_SCALE : 1);
-      const v = Math.sqrt(mu / r) * Math.sqrt(GRAV_SCALE);
+      const a = b.distAU * AU;
+      const e = Math.max(0, Math.min(0.9, b.ecc));
+      const rp = a * (1 - e);                 // perihelion distance
+      b.x = p.x + Math.cos(ang) * rp;
+      b.y = p.y + Math.sin(ang) * rp;
+      // vis-viva at perihelion: v² = (G·M/a)·(1+e)/(1-e)  → circular when e=0
+      const mu = BASE_G * p.mass * (b.parent === 0 ? SUN_SCALE : 1) * GRAV_SCALE;
+      const v = Math.sqrt(mu / a * (1 + e) / (1 - e));
       b.vx = p.vx + Math.sin(ang) * -v;  // perpendicular to radius (CCW)
       b.vy = p.vy + Math.cos(ang) * v;
     }
     makeRings();
+    baselineEnergy();
   }
 
-  // Create a body on a circular orbit about `parent`, with a fresh id.
+  // Create a body on an (optionally eccentric) orbit about `parent`, fresh id.
   function spawnOrbiter(parent: Body, distAU: number, radius: number, mass: number,
-                        color: string, name: string, isMoon: boolean): Body {
+                        color: string, name: string, isMoon: boolean, ecc = 0): Body {
     const ang = Math.random() * Math.PI * 2;
-    const r = distAU * AU;
-    const v = Math.sqrt(BASE_G * massOf(parent) * GRAV_SCALE / r);
+    const a = distAU * AU;
+    const e = Math.max(0, Math.min(0.9, ecc));
+    const rp = a * (1 - e);
+    const mu = BASE_G * massOf(parent) * GRAV_SCALE;
+    const v = Math.sqrt(mu / a * (1 + e) / (1 - e));
     return {
-      i: nextId++, name, color, distAU, radius, mass, parent: parent.i, isMoon,
-      x: parent.x + Math.cos(ang) * r, y: parent.y + Math.sin(ang) * r,
+      i: nextId++, name, color, distAU, radius, mass, parent: parent.i, isMoon, ecc: e,
+      x: parent.x + Math.cos(ang) * rp, y: parent.y + Math.sin(ang) * rp,
       vx: parent.vx + Math.sin(ang) * -v, vy: parent.vy + Math.cos(ang) * v,
       trail: [], extra: false,
     };
@@ -143,7 +152,7 @@
     flashes.length = 0;
     const sun: Body = {
       i: nextId++, name: "Sun", color: "#ffcf4d", distAU: 0,
-      radius: 22 + Math.random() * 8, mass: 333000, parent: null, isMoon: false,
+      radius: 22 + Math.random() * 8, mass: 333000, parent: null, isMoon: false, ecc: 0,
       x: 0, y: 0, vx: 0, vy: 0, trail: [], extra: false,
     };
     bodies.push(sun);
@@ -155,7 +164,8 @@
       const mass = Math.pow(10, Math.random() * 3.7 - 1.3);       // ~0.05 .. ~250 M⊕
       const radius = Math.max(3, Math.min(16, Math.cbrt(mass) * 2.2 + 2));
       const name = NAMES[Math.floor(Math.random() * NAMES.length)] + "-" + (p + 1);
-      const planet = spawnOrbiter(sun, dist, radius, mass, PALETTE[p % PALETTE.length], name, false);
+      const ecc = Math.random() < 0.5 ? Math.random() * 0.18 : 0;   // some elliptical
+      const planet = spawnOrbiter(sun, dist, radius, mass, PALETTE[p % PALETTE.length], name, false, ecc);
       bodies.push(planet);
 
       const nMoons = Math.floor(Math.random() * 5);               // 0..4
@@ -170,6 +180,7 @@
     }
     cam.focus = 0; selected = 0; simTime = 0; followSuspended = false;
     belt = []; oort = [];   // a random system has no predefined belts
+    baselineEnergy();
     buildFocusList();
   }
 
@@ -224,20 +235,24 @@
     return b.i === 0 ? b.mass * SUN_SCALE : b.mass;
   }
 
-  function step(dt: number): void {
+  // Fill ax/ay with the acceleration on every body in `bs` at its current
+  // position. Pass 1 is full N-body among non-moons; pass 2 binds each moon to
+  // its parent in the parent's accelerating frame. Pure function of positions —
+  // so it can be called twice per leapfrog step and on cloned arrays (prediction).
+  function computeAccel(bs: Body[], ax: Float64Array, ay: Float64Array): void {
     const G = BASE_G * GRAV_SCALE;
-    const n = bodies.length;
-    const ax = new Float64Array(n), ay = new Float64Array(n);
+    const n = bs.length;
+    ax.fill(0, 0, n); ay.fill(0, 0, n);
     const idxOf = new Map<number, number>();
-    for (let k = 0; k < n; k++) idxOf.set(bodies[k].i, k);
+    for (let k = 0; k < n; k++) idxOf.set(bs[k].i, k);
 
     // Pass 1: full N-body among the non-moon bodies.
     for (let a = 0; a < n; a++) {
-      const A = bodies[a];
+      const A = bs[a];
       if (A.isMoon) continue;
       const Amass = massOf(A);
       for (let b = a + 1; b < n; b++) {
-        const B = bodies[b];
+        const B = bs[b];
         if (B.isMoon) continue;
         const Bmass = massOf(B);
         const dx = B.x - A.x, dy = B.y - A.y;
@@ -253,11 +268,11 @@
 
     // Pass 2: each moon = parent's acceleration + gravity toward the parent.
     for (let k = 0; k < n; k++) {
-      const m = bodies[k];
+      const m = bs[k];
       if (!m.isMoon || m.parent === null) continue;
       const pIdx = idxOf.get(m.parent);
       if (pIdx === undefined) continue;           // parent gone (mid-merge)
-      const p = bodies[pIdx];
+      const p = bs[pIdx];
       ax[k] = ax[pIdx];                           // carried along the parent's orbit
       ay[k] = ay[pIdx];
       const dx = p.x - m.x, dy = p.y - m.y;
@@ -267,15 +282,67 @@
       const f = G * massOf(p) * inv / d2;         // bound only to the parent body
       ax[k] += f * dx; ay[k] += f * dy;
     }
+  }
 
-    for (let k = 0; k < n; k++) {
-      const b = bodies[k];
-      b.vx += ax[k] * dt; b.vy += ay[k] * dt;
+  // Reused accel scratch buffers (grown as the body count changes).
+  let sAx = new Float64Array(0), sAy = new Float64Array(0);
+
+  // Velocity-Verlet / leapfrog (kick–drift–kick): half-kick, full drift,
+  // recompute forces, half-kick. Conserves energy far better than Euler, so
+  // orbits stay stable over long runs instead of slowly spiralling.
+  function step(dt: number): void {
+    const n = bodies.length;
+    if (sAx.length < n) { sAx = new Float64Array(n); sAy = new Float64Array(n); }
+    computeAccel(bodies, sAx, sAy);
+    const hd = dt * 0.5;
+    for (let k = 0; k < n; k++) { const b = bodies[k]; b.vx += sAx[k] * hd; b.vy += sAy[k] * hd; }
+    for (let k = 0; k < n; k++) { const b = bodies[k]; b.x += b.vx * dt; b.y += b.vy * dt; }
+    computeAccel(bodies, sAx, sAy);
+    for (let k = 0; k < n; k++) { const b = bodies[k]; b.vx += sAx[k] * hd; b.vy += sAy[k] * hd; }
+  }
+
+  // ----------------------- Energy diagnostic -----------------------
+  // Total mechanical energy of the true N-body subsystem (non-moons). Moons use
+  // the hybrid frame model and aren't conservative, so they're excluded — this
+  // tracks how well the integrator conserves energy for the planets + Sun.
+  let energy0 = 0;
+  function totalEnergy(): number {
+    const G = BASE_G * GRAV_SCALE;
+    const ns = bodies.filter(b => !b.isMoon);
+    let ke = 0, pe = 0;
+    for (const b of ns) ke += 0.5 * massOf(b) * (b.vx * b.vx + b.vy * b.vy);
+    for (let a = 0; a < ns.length; a++) {
+      for (let b = a + 1; b < ns.length; b++) {
+        const A = ns[a], B = ns[b];
+        const dx = B.x - A.x, dy = B.y - A.y;
+        const d = Math.sqrt(dx * dx + dy * dy + 4);   // matches the force softening
+        pe -= G * massOf(A) * massOf(B) / d;
+      }
     }
-    for (let k = 0; k < n; k++) {
-      const b = bodies[k];
-      b.x += b.vx * dt; b.y += b.vy * dt;
+    return ke + pe;
+  }
+  function baselineEnergy(): void { energy0 = totalEnergy(); }
+
+  // ---------------------- Trajectory prediction --------------------
+  // Integrate a throwaway copy of the whole system forward and return the
+  // future path of body `id`. Reuses step() by temporarily pointing the global
+  // `bodies` at the clone, so the predicted motion matches the sim exactly.
+  function predictPath(id: number, steps: number, dt: number): Vec2[] {
+    const saved = sAx, savedY = sAy;          // don't clobber the live scratch
+    sAx = new Float64Array(0); sAy = new Float64Array(0);
+    const real = bodies;
+    bodies = real.map(b => ({ ...b, trail: [] }));
+    const target = bodies.find(b => b.i === id);
+    const path: Vec2[] = [];
+    if (target) {
+      for (let s = 0; s < steps; s++) {
+        step(dt);
+        if (s % 2 === 0) path.push([target.x, target.y]);   // sample every other step
+      }
     }
+    bodies = real;
+    sAx = saved; sAy = savedY;
+    return path;
   }
 
   // ------------------------- Collisions ----------------------------
@@ -346,6 +413,17 @@
   // Depth of a world point into the screen (used for painter's-order drawing).
   function depthOf(wx: number, wy: number): number {
     return (wx - cam.x) * Math.sin(viewSpin) + (wy - cam.y) * Math.cos(viewSpin);
+  }
+
+  // Inverse of worldToScreen: un-foreshorten Y, then un-spin. Used to turn a
+  // pointer position into a world point (drag-to-launch).
+  function screenToWorld(sx: number, sy: number): Vec2 {
+    const rx = (sx - W / 2) / ZOOM;
+    const ry = (sy - H / 2) / ZOOM / Math.cos(viewTilt);
+    const cs = Math.cos(viewSpin), sn = Math.sin(viewSpin);
+    const dx = rx * cs + ry * sn;       // R(spin)⁻¹ = Rᵀ
+    const dy = -rx * sn + ry * cs;
+    return [cam.x + dx, cam.y + dy];
   }
 
   // --------------------------- Stars -------------------------------
@@ -436,6 +514,14 @@
   window.addEventListener("resize", () => { makeStars(); makeBackground(); });
 
   let showTrails = true, showOrbits = false, showLabels = true, showRings = true;
+  let showPredict = false;   // draw the selected body's future trajectory
+
+  // Drag-to-launch: when armed, dragging on empty space spawns a body whose
+  // velocity is the drag vector (in world units).
+  let launchMode = false, launching = false, addStarMode = false;
+  let launchStartW: Vec2 | null = null;   // launch origin, world coords
+  let launchCurS: Vec2 | null = null;     // current pointer, screen coords
+  let launchN = 0;
 
   // Decorative particle belts (asteroid belt + Oort cloud). These are visual
   // only — they orbit at the right relative rate but aren't part of the N-body.
@@ -454,6 +540,89 @@
     g = Math.min(255, g + (255 - g) * amt);
     b = Math.min(255, b + (255 - b) * amt);
     return `rgb(${r | 0},${g | 0},${b | 0})`;
+  }
+
+  const isComet = (b: Body): boolean => b.extra && b.name.startsWith("Comet");
+  // The original Sun (id 0) plus any runtime-dropped stars: drawn self-lit with
+  // a glow, with no night-side terminator.
+  const isStarBody = (b: Body): boolean => b.i === 0 || !!b.isStar;
+
+  // Comet tails: a glowing plume pointing directly away from the Sun, longer
+  // the closer the comet is (solar wind / sublimation). Purely cosmetic.
+  function drawCometTails(): void {
+    const sun = bodies[0];
+    if (!sun) return;
+    ctx.globalCompositeOperation = "lighter";
+    for (const b of bodies) {
+      if (!isComet(b)) continue;
+      const dx = b.x - sun.x, dy = b.y - sun.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const distAU = dist / AU;
+      const ux = dx / dist, uy = dy / dist;                  // unit vector away from Sun
+      const lenWorld = Math.min(3.2 * AU, (1.1 * AU) / Math.max(0.35, distAU - 0.2));
+      const [hx, hy] = worldToScreen(b.x, b.y);
+      const [tx, ty] = worldToScreen(b.x + ux * lenWorld, b.y + uy * lenWorld);
+      const grad = ctx.createLinearGradient(hx, hy, tx, ty);
+      grad.addColorStop(0, "rgba(190,235,255,0.55)");
+      grad.addColorStop(0.4, "rgba(140,200,255,0.22)");
+      grad.addColorStop(1, "rgba(120,170,255,0)");
+      ctx.strokeStyle = grad;
+      ctx.lineCap = "round";
+      ctx.lineWidth = Math.max(2, b.radius * 1.8 * Math.sqrt(ZOOM));
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+    }
+    ctx.lineCap = "butt";
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  // Future-path overlay for the selected body. Horizon scales with its orbital
+  // period so one sees roughly one orbit ahead (or a long arc when unbound).
+  function drawPrediction(): void {
+    if (!showPredict) return;
+    const f = bodyById(selected);
+    if (!f || f.i === 0) return;
+    let horizon = 0.8;
+    if (f.parent !== null) {
+      const p = bodyById(f.parent);
+      if (p) {
+        const r = Math.hypot(f.x - p.x, f.y - p.y);
+        const mu = BASE_G * GRAV_SCALE * massOf(p);
+        if (mu > 0 && r > 0) horizon = 2 * Math.PI * Math.sqrt(r * r * r / mu) * 1.15;
+      }
+    }
+    horizon = Math.max(0.1, Math.min(12, horizon));
+    const steps = 260;
+    const path = predictPath(f.i, steps, horizon / steps);
+    if (path.length < 2) return;
+    ctx.save();
+    ctx.setLineDash([5, 5]);
+    ctx.lineWidth = 1.3;
+    ctx.strokeStyle = lighten(f.color, 0.35) + "cc";
+    ctx.beginPath();
+    for (let i = 0; i < path.length; i++) {
+      const [sx, sy] = worldToScreen(path[i][0], path[i][1]);
+      if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Aim arrow while dragging in launch mode: drag length/direction = velocity.
+  function drawAimArrow(): void {
+    if (!launching || !launchStartW || !launchCurS) return;
+    const [sx, sy] = worldToScreen(launchStartW[0], launchStartW[1]);
+    const [ex, ey] = launchCurS;
+    ctx.save();
+    ctx.strokeStyle = "#ffd27a"; ctx.fillStyle = "#ffd27a"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+    const ang = Math.atan2(ey - sy, ex - sx);
+    ctx.beginPath();
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - Math.cos(ang - 0.4) * 12, ey - Math.sin(ang - 0.4) * 12);
+    ctx.lineTo(ex - Math.cos(ang + 0.4) * 12, ey - Math.sin(ang + 0.4) * 12);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.arc(sx, sy, 4, 0, 7); ctx.fill();
+    ctx.restore();
   }
 
   function draw(time: number): void {
@@ -507,8 +676,11 @@
     }
 
     drawRings();
+    drawCometTails();
+    drawPrediction();
 
     // bodies, back-to-front so nearer ones overlap farther ones when tilted
+    const sunBody = bodyById(0) || bodies[0];
     const order = viewTilt > 0.001
       ? [...bodies].sort((a, b) => depthOf(a.x, a.y) - depthOf(b.x, b.y))
       : bodies;
@@ -526,6 +698,13 @@
         g.addColorStop(1, "rgba(255,140,0,0)");
         ctx.fillStyle = g;
         ctx.beginPath(); ctx.arc(sx, sy, rad * 4.5, 0, 7); ctx.fill();
+      } else if (b.isStar) {
+        const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, rad * 4.5);
+        g.addColorStop(0, b.color + "99");
+        g.addColorStop(0.4, b.color + "33");
+        g.addColorStop(1, b.color + "00");
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(sx, sy, rad * 4.5, 0, 7); ctx.fill();
       } else {
         const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, rad * 2.2);
         g.addColorStop(0, b.color + "44");
@@ -534,12 +713,32 @@
         ctx.beginPath(); ctx.arc(sx, sy, rad * 2.2, 0, 7); ctx.fill();
       }
 
-      // body disk with shading
-      const bg = ctx.createRadialGradient(sx - rad * 0.35, sy - rad * 0.35, rad * 0.1, sx, sy, rad);
+      // body disk, lit from the Sun's direction (so we see phases/terminator)
+      let lx = -0.35, ly = -0.35;                      // default light dir (Sun itself)
+      if (!isStarBody(b) && sunBody) {
+        const [ssx, ssy] = worldToScreen(sunBody.x, sunBody.y);
+        const ddx = ssx - sx, ddy = ssy - sy, dl = Math.hypot(ddx, ddy) || 1;
+        lx = ddx / dl; ly = ddy / dl;
+      }
+      const bg = ctx.createRadialGradient(sx + lx * rad * 0.55, sy + ly * rad * 0.55, rad * 0.1, sx, sy, rad);
       bg.addColorStop(0, lighten(b.color, 0.4));
       bg.addColorStop(1, b.color);
-      ctx.fillStyle = b.i === 0 ? "#ffd34d" : bg;
+      ctx.fillStyle = b.i === 0 ? "#ffd34d" : isStarBody(b) ? lighten(b.color, 0.35) : bg;
       ctx.beginPath(); ctx.arc(sx, sy, rad, 0, 7); ctx.fill();
+
+      // night side: dark crescent on the side facing away from the Sun
+      if (!isStarBody(b) && rad > 2.4 && sunBody) {
+        ctx.save();
+        ctx.beginPath(); ctx.arc(sx, sy, rad, 0, 7); ctx.clip();
+        const nx = sx - lx * rad * 0.75, ny = sy - ly * rad * 0.75;
+        const sh = ctx.createRadialGradient(nx, ny, rad * 0.15, nx, ny, rad * 1.7);
+        sh.addColorStop(0, "rgba(2,3,10,0.80)");
+        sh.addColorStop(0.55, "rgba(2,3,10,0.34)");
+        sh.addColorStop(1, "rgba(2,3,10,0)");
+        ctx.fillStyle = sh;
+        ctx.fillRect(sx - rad, sy - rad, rad * 2, rad * 2);
+        ctx.restore();
+      }
 
       // Saturn ring
       if (b.name === "Saturn") {
@@ -572,6 +771,7 @@
       ctx.globalAlpha = 1;
     }
 
+    drawAimArrow();
     drawReadout();
     updateDayClock();
   }
@@ -592,7 +792,7 @@
     return m.toFixed(3);
   }
   function bodyKind(b: Body): string {
-    if (b.i === 0) return "Star";
+    if (isStarBody(b)) return "Star";
     if (b.extra) return b.name.startsWith("Comet") ? "Comet" : "Probe";
     if (b.isMoon) return "Moon";
     return "Planet";
@@ -646,10 +846,23 @@
       }
     }
 
+    // Energy-conservation diagnostic. Changing G / Sun mass / the body set
+    // legitimately changes the system's energy, so re-baseline when they do;
+    // otherwise the drift reflects the integrator alone.
+    if (GRAV_SCALE !== lastG || SUN_SCALE !== lastSun || bodies.length !== lastCount) {
+      baselineEnergy();
+      lastG = GRAV_SCALE; lastSun = SUN_SCALE; lastCount = bodies.length;
+    }
+    const e = totalEnergy();
+    const drift = energy0 !== 0 ? ((e - energy0) / Math.abs(energy0)) * 100 : 0;
+    const dStr = (drift >= 0 ? "+" : "") + drift.toFixed(2) + "%";
+    html += row("Energy ΔE", dStr);
+
     html += `<div class="sep"></div>`;
     html += `<span class="dim">Bodies ${bodies.length} · G ${GRAV_SCALE.toFixed(2)}× · ${TIME_SCALE.toFixed(2)}×t</span>`;
     readoutEl.innerHTML = html;
   }
+  let lastG = 1, lastSun = 1, lastCount = -1;
 
   // ----------------------------- Loop ------------------------------
   let lastT = performance.now();
@@ -720,6 +933,7 @@
   $<HTMLInputElement>("t_realscale").addEventListener("change", e => REAL_SCALE = (e.target as HTMLInputElement).checked);
   $<HTMLInputElement>("t_collide").addEventListener("change", e => collisions = (e.target as HTMLInputElement).checked);
   $<HTMLInputElement>("t_rings").addEventListener("change", e => showRings = (e.target as HTMLInputElement).checked);
+  $<HTMLInputElement>("t_predict").addEventListener("change", e => showPredict = (e.target as HTMLInputElement).checked);
 
   const pauseBtn = $<HTMLButtonElement>("b_pause");
   pauseBtn.addEventListener("click", () => {
@@ -742,7 +956,7 @@
   }
   // Reset all the dashboard controls (sliders, toggles, view, pause) to defaults.
   function resetControls(): void {
-    setRange("s_speed", 10);   // 0.10×
+    setRange("s_speed", 2);    // 0.02×
     setRange("s_grav", 100);   // 1.00×
     setRange("s_sun", 100);    // 1.00×
     setRange("s_zoom", 100);   // 1.00×
@@ -752,6 +966,9 @@
     setToggle("t_realscale", false);
     setToggle("t_collide", true);
     setToggle("t_rings", true);
+    setToggle("t_predict", false);
+    setLaunchMode(false);
+    setAddStarMode(false);
     viewSpin = 0; viewTilt = DEFAULT_TILT; // default perspective
     if (paused) pauseBtn.click();         // resume if paused
     followSuspended = false;
@@ -794,7 +1011,7 @@
     const v = Math.sqrt(mu / r) * 1.05 * Math.sqrt(Math.max(0.2, GRAV_SCALE));
     bodies.push({
       i: nextId++, name: "Comet " + cometN, color: "#9fe8ff",
-      distAU: 5.5, radius: 2.2, mass: 0.0001, parent: 0, isMoon: false,
+      distAU: 5.5, radius: 2.2, mass: 0.0001, parent: 0, isMoon: false, ecc: 0,
       x, y, vx: Math.cos(toSun) * v, vy: Math.sin(toSun) * v, trail: [], extra: true,
     });
     buildFocusList();
@@ -811,7 +1028,7 @@
     bodies.push({
       i: id, name: "Voyager 1", color: "#e8eef7",
       distAU: Math.hypot(earth.x, earth.y) / AU, radius: 1.6, mass: 0.00001,
-      parent: 0, isMoon: false, extra: true,
+      parent: 0, isMoon: false, ecc: 0, extra: true,
       x: earth.x + (earth.vx / sp) * off, y: earth.y + (earth.vy / sp) * off,
       vx: earth.vx * 1.5, vy: earth.vy * 1.5,  // prograde boost → heliocentric escape
       trail: [],
@@ -819,6 +1036,144 @@
     selected = id;                            // show the probe's card
     buildFocusList();
   });
+
+  // ---- Drag-to-launch ----
+  const launchBtn = $<HTMLButtonElement>("b_launch");
+  function setLaunchMode(on: boolean): void {
+    launchMode = on;
+    if (on) setAddStarMode(false);          // the two canvas modes are exclusive
+    launching = false; launchStartW = null; launchCurS = null;
+    launchBtn.classList.toggle("active", on);
+    launchBtn.textContent = on ? "🎯 Aiming…" : "🎯 Aim & launch";
+    canvas.style.cursor = on ? "crosshair" : "";
+  }
+  launchBtn.addEventListener("click", () => setLaunchMode(!launchMode));
+
+  // Spawn a body at world point `p0` with velocity = drag vector × gain. A
+  // longer drag → faster body. Spawned as a small icy comet so it gets a tail.
+  function launchBody(p0: Vec2, p1World: Vec2): void {
+    const vx = (p1World[0] - p0[0]) * LAUNCH_GAIN;
+    const vy = (p1World[1] - p0[1]) * LAUNCH_GAIN;
+    launchN++;
+    const id = nextId++;
+    bodies.push({
+      i: id, name: "Comet L" + launchN, color: "#9fe8ff",
+      distAU: Math.hypot(p0[0], p0[1]) / AU, radius: 2.4, mass: 0.02,
+      parent: 0, isMoon: false, ecc: 0, extra: true,
+      x: p0[0], y: p0[1], vx, vy, trail: [],
+    });
+    selected = id;
+    buildFocusList();
+  }
+  const LAUNCH_GAIN = 22;   // world-units of speed per world-unit of drag
+
+  // ---- Click-to-add-star ----
+  // Drop a heavy star wherever you click. It's a free N-body body (no parent),
+  // so every planet and the Sun feel its gravity and the whole system visibly
+  // bends/deforms around it. Stays put (zero velocity) so the deformation is
+  // easy to watch; tune Gravity / Time speed to taste.
+  const addStarBtn = $<HTMLButtonElement>("b_addstar");
+  function setAddStarMode(on: boolean): void {
+    addStarMode = on;
+    if (on) setLaunchMode(false);           // the two canvas modes are exclusive
+    addStarBtn.classList.toggle("active", on);
+    addStarBtn.textContent = on ? "☀️ Click to drop…" : "☀️ Add star";
+    canvas.style.cursor = on ? "crosshair" : "";
+  }
+  addStarBtn.addEventListener("click", () => setAddStarMode(!addStarMode));
+
+  const STAR_COLORS = ["#ffcf4d", "#ffd9a0", "#ffb36b", "#ff9d6b", "#cfe3ff", "#ffe9b0"];
+  let starN = 0;
+  // Spawn a stationary star at world point `p`. Mass ~0.3..1 solar masses so the
+  // perturbation is dramatic but not always an instant ejection.
+  function placeStar(p: Vec2): void {
+    starN++;
+    const mass = 100000 + Math.random() * 233000;
+    const radius = Math.max(14, Math.min(30, Math.cbrt(mass) * 0.34));
+    const color = STAR_COLORS[Math.floor(Math.random() * STAR_COLORS.length)];
+    const id = nextId++;
+    bodies.push({
+      i: id, name: "Star " + starN, color, distAU: Math.hypot(p[0], p[1]) / AU,
+      radius, mass, parent: null, isMoon: false, ecc: 0, extra: true, isStar: true,
+      x: p[0], y: p[1], vx: 0, vy: 0, trail: [],
+    });
+    selected = id;
+    buildFocusList();
+    showToast("☀️ Star added — watch the orbits bend");
+  }
+
+  // ---- Share / restore via URL hash ----
+  $("b_share").addEventListener("click", () => {
+    const payload = {
+      v: 1,
+      sc: [TIME_SCALE, GRAV_SCALE, SUN_SCALE, ZOOM],
+      vw: [+viewSpin.toFixed(3), +viewTilt.toFixed(3)],
+      tg: [showTrails, showOrbits, showLabels, REAL_SCALE, collisions, showRings, showPredict],
+      t: +simTime.toFixed(2),
+      f: cam.focus,
+      b: bodies.map(b => [
+        b.i, b.name, b.color, +b.distAU.toFixed(3), +b.radius.toFixed(2), b.mass,
+        b.parent, b.isMoon ? 1 : 0, b.extra ? 1 : 0,
+        +b.x.toFixed(2), +b.y.toFixed(2), +b.vx.toFixed(3), +b.vy.toFixed(3),
+        b.isStar ? 1 : 0,
+      ]),
+    };
+    const code = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    const url = location.origin + location.pathname + "#s=" + code;
+    location.hash = "s=" + code;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(() => showToast("🔗 Link copied to clipboard"),
+        () => showToast("🔗 Link in address bar"));
+    } else {
+      showToast("🔗 Link in address bar");
+    }
+  });
+
+  // Rebuild the full simulation state from a share payload. Returns false if the
+  // hash is absent or unparseable (so boot falls back to the default system).
+  function restoreFromHash(): boolean {
+    const m = location.hash.match(/s=([^&]+)/);
+    if (!m) return false;
+    try {
+      const p = JSON.parse(decodeURIComponent(escape(atob(m[1]))));
+      if (!p || p.v !== 1 || !Array.isArray(p.b)) return false;
+      bodies = p.b.map((r: any[]): Body => ({
+        i: r[0], name: r[1], color: r[2], distAU: r[3], radius: r[4], mass: r[5],
+        parent: r[6], isMoon: !!r[7], extra: !!r[8], ecc: 0,
+        x: r[9], y: r[10], vx: r[11], vy: r[12], trail: [],
+        isStar: !!r[13],
+      }));
+      nextId = bodies.reduce((mx, b) => Math.max(mx, b.i), -1) + 1;
+      setRange("s_speed", Math.round(p.sc[0] * 100));
+      setRange("s_grav", Math.round(p.sc[1] * 100));
+      setRange("s_sun", Math.round(p.sc[2] * 100));
+      setRange("s_zoom", Math.round(p.sc[3] * 100));
+      viewSpin = p.vw[0]; viewTilt = p.vw[1];
+      const t = p.tg || [];
+      setToggle("t_trails", !!t[0]); setToggle("t_orbits", !!t[1]);
+      setToggle("t_labels", !!t[2]); setToggle("t_realscale", !!t[3]);
+      setToggle("t_collide", !!t[4]); setToggle("t_rings", !!t[5]);
+      setToggle("t_predict", !!t[6]);
+      simTime = p.t || 0;
+      cam.focus = p.f ?? 0; selected = cam.focus;
+      // Belts only make sense for a Sun-like central system; recreate if present.
+      if (bodies.some(b => b.name === "Earth") || bodies.some(b => b.name === "Jupiter")) makeRings();
+      else { belt = []; oort = []; }
+      baselineEnergy();
+      buildFocusList();
+      return true;
+    } catch { return false; }
+  }
+
+  // Lightweight transient toast (reuses styling defined in styles.css).
+  let toastTimer: number | null = null;
+  function showToast(msg: string): void {
+    const el = $("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    if (toastTimer !== null) clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => el.classList.remove("show"), 1800);
+  }
 
   // Focus dropdown
   const selFocus = $<HTMLSelectElement>("sel_focus");
@@ -852,19 +1207,37 @@
     if (e.key === "h") $("dash").classList.toggle("collapsed");
     if (e.key === "0") { viewSpin = 0; viewTilt = DEFAULT_TILT; }  // reset view
     if (e.key === " ") { e.preventDefault(); pauseBtn.click(); }
+    if (e.key === "Escape") { if (launchMode) setLaunchMode(false); if (addStarMode) setAddStarMode(false); }
   });
 
   // ----------------------------- Mouse -----------------------------
   canvas.addEventListener("mousedown", e => {
+    // Launch mode: left-press on the canvas begins aiming a new body.
+    if (launchMode && e.button === 0) {
+      launching = true; didDrag = true;
+      launchStartW = screenToWorld(e.clientX, e.clientY);
+      launchCurS = [e.clientX, e.clientY];
+      panLast = null; panning = false;
+      return;
+    }
     panning = true; didDrag = false; panLast = [e.clientX, e.clientY];
   });
   // Keep the right mouse button usable for rotation instead of a context menu.
   canvas.addEventListener("contextmenu", e => e.preventDefault());
   window.addEventListener("mouseup", e => {
-    if (panning && !didDrag) pickBody(e.clientX, e.clientY);
+    if (launching && launchStartW) {
+      launchBody(launchStartW, screenToWorld(e.clientX, e.clientY));
+      launching = false; launchStartW = null; launchCurS = null;
+      return;
+    }
+    if (panning && !didDrag) {
+      if (addStarMode) placeStar(screenToWorld(e.clientX, e.clientY));
+      else pickBody(e.clientX, e.clientY);
+    }
     panning = false;
   });
   window.addEventListener("mousemove", e => {
+    if (launching) { launchCurS = [e.clientX, e.clientY]; return; }
     hoverTip(e.clientX, e.clientY);
     const last = panLast;
     if (!last) return;
@@ -965,7 +1338,10 @@
   }, { passive: false });
 
   canvas.addEventListener("touchend", e => {
-    if (touchMode === "pan" && !touchMoved && tapStart) pickBody(tapStart[0], tapStart[1]);
+    if (touchMode === "pan" && !touchMoved && tapStart) {
+      if (addStarMode) placeStar(screenToWorld(tapStart[0], tapStart[1]));
+      else pickBody(tapStart[0], tapStart[1]);
+    }
     if (e.touches.length === 0) { touchMode = "none"; touchLast = null; }
     else if (e.touches.length === 1) {
       touchMode = "pan"; touchMoved = true;  // continuing after a gesture isn't a tap
@@ -1005,9 +1381,11 @@
   }
 
   // ----------------------------- Boot ------------------------------
-  makeBodies();
-  buildFocusList();
-  cam.focus = 0;
-  selected = 0;
+  if (!restoreFromHash()) {
+    makeBodies();
+    buildFocusList();
+    cam.focus = 0;
+    selected = 0;
+  }
   requestAnimationFrame(frame);
 })();

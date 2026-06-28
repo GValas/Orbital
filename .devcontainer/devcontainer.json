@@ -1,0 +1,42 @@
+{
+  "name": "Orbital (TS, Node 24)",
+  // Node 24 brings the native `module.stripTypeScriptTypes` the build relies on,
+  // so no toolchain beyond Node is needed to produce dist/.
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:24",
+
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  // `npm run serve` serves dist/ on 8000.
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": { "label": "Orbital", "onAutoForward": "notify" }
+  },
+
+  // Réutilise les clés SSH de l'hôte (pour `npm run deploy` vers le NAS).
+  // Elles survivent ainsi aux rebuilds du conteneur, contrairement à une clé
+  // générée à l'intérieur. ${localEnv:HOME} = home de l'hôte (Linux/WSL/macOS).
+  "mounts": [
+    "source=${localEnv:HOME}/.ssh,target=/home/node/.ssh,type=bind,consistency=cached"
+  ],
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ecmel.vscode-html-css",
+        "formulahendry.auto-rename-tag",
+        "christian-kohler.path-intellisense",
+        "naumovs.color-highlight",
+        "mads-hartmann.bash-ide-vscode"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "typescript.tsdk": "node_modules/typescript/lib"
+      }
+    }
+  },
+
+  "remoteUser": "node"
+}

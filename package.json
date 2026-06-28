@@ -6,7 +6,8 @@
   "scripts": {
     "build": "node build.ts",
     "typecheck": "tsc --noEmit",
-    "serve": "node build.ts && python3 -m http.server 8000"
+    "serve": "node build.ts && python3 -m http.server 8000 --directory dist",
+    "deploy": "bash deploy.sh"
   },
   "engines": {
     "node": ">=22.13"

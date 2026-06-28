@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# build.sh — generate index.html from the TypeScript sources.
+# build.sh — compile the TypeScript sources into ./dist (index.html + app.js).
 #
-#   ./build.sh            Build index.html
-#   ./build.sh --serve    Build, then serve at http://localhost:8000
+#   ./build.sh            Build dist/
+#   ./build.sh --serve    Build, then serve dist/ at http://localhost:8000
 #   ./build.sh --check    Build, then run `tsc --noEmit` (needs npm install)
-#   ./build.sh --open     Build, then open index.html in the default browser
+#   ./build.sh --open     Build, then open dist/index.html in the default browser
 #
 set -euo pipefail
 
@@ -59,7 +59,7 @@ for arg in "$@"; do
       fi
       ;;
     --open)
-      target="$(pwd)/index.html"
+      target="$(pwd)/dist/index.html"
       echo "› Opening $target"
       if command -v xdg-open >/dev/null 2>&1; then xdg-open "$target" >/dev/null 2>&1 &
       elif command -v open >/dev/null 2>&1; then open "$target"
@@ -68,12 +68,12 @@ for arg in "$@"; do
       ;;
     --serve)
       port=8000
-      echo "› Serving at http://localhost:$port  (Ctrl-C to stop)"
-      if command -v python3 >/dev/null 2>&1; then exec python3 -m http.server "$port"
-      elif command -v python >/dev/null 2>&1; then exec python -m http.server "$port"
+      echo "› Serving dist/ at http://localhost:$port  (Ctrl-C to stop)"
+      if command -v python3 >/dev/null 2>&1; then exec python3 -m http.server "$port" --directory dist
+      elif command -v python >/dev/null 2>&1; then exec python -m http.server "$port" --directory dist
       else echo "Error: python not found; cannot serve." >&2; exit 1; fi
       ;;
   esac
 done
 
-echo "✓ Done. Open: file://$(pwd)/index.html"
+echo "✓ Done. Open: file://$(pwd)/dist/index.html"
