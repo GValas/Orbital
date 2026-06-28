@@ -99,6 +99,7 @@ const BODY = `
     </div>
     <div class="btn-row" style="margin-top:6px;">
       <button class="b" id="b_undo">↶ Undo</button>
+      <button class="b" id="b_music">🎵 Ambience</button>
       <button class="b" id="b_share">🔗 Share</button>
     </div>
     <select class="sel" id="sel_preset" style="margin-top:8px;">

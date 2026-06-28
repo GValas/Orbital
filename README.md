@@ -38,6 +38,9 @@ no runtime dependencies.
 - **Asteroid belt + Oort cloud** as animated decorative particle belts.
 - **Animated deep-space background** — drifting nebulae and slowly rotating
   spiral galaxies.
+- **Generative ambient music** — a zen space drone with drifting pentatonic
+  tones, synthesised live with the Web Audio API (no audio files). Toggle with
+  **🎵 Ambience**.
 - **Terrestrial day counter** — elapsed time in Earth days (1 orbit = 365.25).
 - **3D-ish view** — tilt/spin the orbital plane; depth-sorted rendering.
 - **Info card** with a mini picture, type, mass, moons, distances and an
@@ -54,7 +57,7 @@ no runtime dependencies.
 | **Zoom** + view toggles | trails, paths, labels, real scale, collisions, belts, trajectory, field, vectors, barycenter, tides |
 | **Star mass** | mass of stars dropped with **☀️ Add star** (0.1–2 M☉) |
 | **Focus body** | camera follows any planet or moon |
-| **Experiments** | Zero-G · Kick planets · Add comet · 🌟 Random system · 🛰️ Voyager 1 · 🎯 Aim & launch · ☀️ Add star · ↶ Undo · scenario presets |
+| **Experiments** | Zero-G · Kick planets · Add comet · 🌟 Random system · 🛰️ Voyager 1 · 🎯 Aim & launch · ☀️ Add star · ↶ Undo · 🎵 Ambience · scenario presets |
 | **Reset** | restore the real solar system and all defaults |
 
 - **Mouse:** drag to pan · scroll to zoom · **click a body to show its info

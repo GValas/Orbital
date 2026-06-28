@@ -1484,6 +1484,100 @@
     showToast("☀️ Star added — watch the orbits bend");
   }
 
+  // --------------------- Ambient audio (generative) ----------------
+  // Zen / deep-space ambience synthesised live with the Web Audio API — no asset
+  // files, in keeping with the two-file build. A slow detuned saw drone runs
+  // through a gently swept low-pass into a synthesised reverb, with soft
+  // pentatonic tones drifting in at random. Started on the button (a user
+  // gesture, as autoplay policies require).
+  let audioCtx: AudioContext | null = null;
+  let musicOn = false;
+  let musicGain: GainNode | null = null;
+  let voices: AudioScheduledSourceNode[] = [];
+  let noteTimer: number | null = null;
+
+  function buildReverb(ctx: AudioContext): ConvolverNode {
+    const len = Math.floor(ctx.sampleRate * 3.2);
+    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6);
+    }
+    const c = ctx.createConvolver(); c.buffer = buf;
+    return c;
+  }
+
+  function startMusic(): void {
+    if (musicOn) return;
+    if (!audioCtx) audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const ctx = audioCtx;
+    void ctx.resume();
+    musicOn = true;
+
+    musicGain = ctx.createGain();
+    musicGain.gain.value = 0;
+    const reverb = buildReverb(ctx);
+    const wet = ctx.createGain(); wet.gain.value = 0.7;
+    const dry = ctx.createGain(); dry.gain.value = 0.5;
+    musicGain.connect(dry).connect(ctx.destination);
+    musicGain.connect(reverb); reverb.connect(wet); wet.connect(ctx.destination);
+    musicGain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 5);   // slow swell in
+
+    // Drone: root + fifth + octave, detuned, through a slowly swept low-pass.
+    const root = 110; // A2
+    const filt = ctx.createBiquadFilter(); filt.type = "lowpass";
+    filt.frequency.value = 460; filt.Q.value = 1.2; filt.connect(musicGain);
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.05;
+    const lfoGain = ctx.createGain(); lfoGain.gain.value = 200;
+    lfo.connect(lfoGain); lfoGain.connect(filt.frequency); lfo.start();
+    voices = [lfo];
+    const partials: [number, number, number][] = [[1, -5, 0.4], [1.5, 4, 0.22], [2, 7, 0.13], [1, 8, 0.3]];
+    for (const [mult, det, g] of partials) {
+      const o = ctx.createOscillator(); o.type = "sawtooth";
+      o.frequency.value = root * mult; o.detune.value = det;
+      const og = ctx.createGain(); og.gain.value = g;
+      o.connect(og); og.connect(filt); o.start();
+      voices.push(o);
+    }
+
+    // Drifting tones — A-minor pentatonic across a couple of octaves.
+    const scale = [220, 261.63, 293.66, 329.63, 392, 440, 523.25, 587.33];
+    const pluck = (): void => {
+      if (!musicOn || !audioCtx) return;
+      const now = ctx.currentTime;
+      const o = ctx.createOscillator(); o.type = "sine";
+      o.frequency.value = scale[Math.floor(Math.random() * scale.length)];
+      const g = ctx.createGain(); g.gain.value = 0.0001;
+      g.gain.linearRampToValueAtTime(0.1, now + 1.6);                   // slow attack
+      g.gain.exponentialRampToValueAtTime(0.0008, now + 6);            // long release
+      o.connect(g);
+      const pan = ctx.createStereoPanner();
+      pan.pan.value = Math.random() * 1.6 - 0.8;
+      g.connect(pan); pan.connect(reverb); pan.connect(dry);
+      o.start(now); o.stop(now + 6.3);
+      noteTimer = window.setTimeout(pluck, 3500 + Math.random() * 5500);
+    };
+    noteTimer = window.setTimeout(pluck, 1800);
+  }
+
+  function stopMusic(): void {
+    if (!musicOn || !audioCtx || !musicGain) return;
+    musicOn = false;
+    const ctx = audioCtx;
+    if (noteTimer !== null) { clearTimeout(noteTimer); noteTimer = null; }
+    musicGain.gain.cancelScheduledValues(ctx.currentTime);
+    musicGain.gain.setValueAtTime(musicGain.gain.value, ctx.currentTime);
+    musicGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1.5);   // fade out
+    const dying = voices; voices = [];
+    window.setTimeout(() => { for (const v of dying) { try { v.stop(); } catch { /* already stopped */ } } }, 1700);
+  }
+
+  const musicBtn = $<HTMLButtonElement>("b_music");
+  musicBtn.addEventListener("click", () => {
+    if (musicOn) { stopMusic(); musicBtn.classList.remove("active"); }
+    else { startMusic(); musicBtn.classList.add("active"); showToast("🎵 Ambient space — on"); }
+  });
+
   // ---- Share / restore via URL hash ----
   $("b_share").addEventListener("click", () => {
     const payload = {
