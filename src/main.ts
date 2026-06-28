@@ -637,6 +637,8 @@
   let showVectors = false;   // per-body velocity vectors
   let showBary = false;      // system centre-of-mass marker
   let tides = false;         // tidal (Roche) disruption near stars — off by default
+  let showHZ = false;        // habitable ("Goldilocks") zone ring around the star
+  let showAxes = false;      // draw each body's spin axis at its real obliquity
 
   // Drag-to-aim: arms either the comet-launcher ("launch") or the star-dropper
   // ("star"). Press + drag on empty space sets the new body's velocity (the drag
@@ -868,6 +870,45 @@
     ctx.restore();
   }
 
+  // Habitable zone: the orbital band around the central star where a planet
+  // could hold liquid water. Inner/outer radii scale with √luminosity (a
+  // stylized mass proxy), so a brighter/heavier Sun pushes the band outward.
+  function drawHabitableZone(): void {
+    if (!showHZ) return;
+    const star = bodies[0];
+    if (!star || star.parent !== null) return;       // need a central body
+    const effMass = star.mass * (star.i === 0 ? SUN_SCALE : 1);
+    const lum = Math.sqrt(Math.max(0.05, effMass / 333000));
+    const rin = 0.95 * lum * AU, rout = 1.50 * lum * AU;
+    ctx.save();
+    ctx.beginPath();
+    let first = true;
+    for (let k = 0; k <= 96; k++) {
+      const a = (k / 96) * Math.PI * 2;
+      const [x, y] = worldToScreen(star.x + Math.cos(a) * rout, star.y + Math.sin(a) * rout);
+      first ? (ctx.moveTo(x, y), first = false) : ctx.lineTo(x, y);
+    }
+    for (let k = 96; k >= 0; k--) {
+      const a = (k / 96) * Math.PI * 2;
+      const [x, y] = worldToScreen(star.x + Math.cos(a) * rin, star.y + Math.sin(a) * rin);
+      ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "rgba(90,210,140,0.07)";
+    ctx.fill("evenodd");
+    ctx.lineWidth = 1; ctx.strokeStyle = "rgba(110,230,150,0.22)";
+    for (const r of [rin, rout]) {
+      ctx.beginPath();
+      for (let k = 0; k <= 96; k++) {
+        const a = (k / 96) * Math.PI * 2;
+        const [x, y] = worldToScreen(star.x + Math.cos(a) * r, star.y + Math.sin(a) * r);
+        (k === 0) ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function draw(time: number): void {
     ctx.fillStyle = "#05060d";
     ctx.fillRect(0, 0, W, H);
@@ -883,6 +924,7 @@
     ctx.globalAlpha = 1;
 
     drawField();
+    drawHabitableZone();
 
     // orbit paths (ring around parent at current distance)
     if (showOrbits) {
@@ -994,6 +1036,24 @@
         ctx.restore();
       }
 
+      // Spin axis at the body's real obliquity (schematic: tilt is measured from
+      // screen-vertical, with a marked north pole). Uranus lies on its side, etc.
+      if (showAxes && BODY_TILT[b.name] !== undefined && rad > 1.4) {
+        const tilt = BODY_TILT[b.name] * Math.PI / 180;
+        const len = rad * 2.1;
+        const dx = Math.sin(tilt), dy = -Math.cos(tilt);   // north end direction
+        ctx.save();
+        ctx.strokeStyle = "rgba(255,236,160,0.8)"; ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        ctx.moveTo(sx - dx * len, sy - dy * len);
+        ctx.lineTo(sx + dx * len, sy + dy * len);
+        ctx.stroke();
+        // north-pole cap
+        ctx.fillStyle = "rgba(255,236,160,0.95)";
+        ctx.beginPath(); ctx.arc(sx + dx * len, sy + dy * len, 1.8, 0, 7); ctx.fill();
+        ctx.restore();
+      }
+
       if (showLabels && (!b.isMoon || ZOOM > 1.6) && rad > 1.2) {
         ctx.globalAlpha = 0.85;
         ctx.fillStyle = "#cfd6ef";
@@ -1045,15 +1105,90 @@
     if (b.isMoon) return "Moon";
     return "Planet";
   }
+  // Orbital period in human time. The sim is calibrated so Earth's orbit is one
+  // year (EARTH_YEAR_SIM sim-seconds), so we report short orbits in days and
+  // long ones in years — same scale as the elapsed-time clock.
   function fmtPeriod(t: number): string {
-    if (t < 10) return t.toFixed(2) + " s";
-    if (t < 1000) return t.toFixed(1) + " s";
-    if (t < 1e6) return (t / 1000).toFixed(1) + "k s";
-    return (t / 1e6).toFixed(1) + "M s";
+    const yr = t / EARTH_YEAR_SIM;
+    const days = yr * 365.25;
+    if (days < 2) return days.toFixed(2) + " d";
+    if (yr < 2) return days.toFixed(0) + " d";
+    if (yr < 1000) return yr.toFixed(1) + " yr";
+    return (yr / 1000).toFixed(1) + "k yr";
   }
   function row(k: string, v: string): string {
     return `<span class="k">${k}</span><b>${v}</b><br>`;
   }
+
+  // Curated real-world blurbs shown in the info card. Keyed by body name for
+  // the default system; runtime bodies fall back to a per-kind description.
+  const BODY_FACTS: Record<string, string> = {
+    "Sun":       "G2V yellow dwarf holding 99.86% of the system's mass. It fuses ~600M tons of hydrogen every second; its surface burns near 5,500 °C.",
+    "Mercury":   "The smallest planet and closest to the Sun. With almost no atmosphere it swings from 430 °C by day to −180 °C at night.",
+    "Venus":     "The hottest planet — a runaway CO₂ greenhouse traps 465 °C. It spins backwards, so a day lasts longer than its year.",
+    "Earth":     "The only known world with liquid-water oceans and life. 71% of its surface is ocean, shepherded by one large Moon.",
+    "Moon":      "Earth's only natural satellite. It raises the ocean tides and is slowly drifting away at about 3.8 cm per year.",
+    "Mars":      "The Red Planet, rusted by iron-oxide dust. Home to polar ice caps and Olympus Mons, the tallest volcano known.",
+    "Phobos":    "Mars's larger moon, orbiting so low it rises in the west. Tides will pull it into Mars within ~50 million years.",
+    "Deimos":    "Mars's tiny outer moon — barely 12 km across, most likely a captured asteroid.",
+    "Jupiter":   "The giant: 2.5× the mass of every other planet combined. Its Great Red Spot is a storm raging for centuries.",
+    "Io":        "The most volcanic body in the Solar System, kneaded and heated by Jupiter's relentless tides.",
+    "Europa":    "An icy shell over a salty global ocean — one of the most promising places to search for life.",
+    "Ganymede":  "The largest moon in the Solar System — bigger than Mercury, and the only moon with its own magnetic field.",
+    "Callisto":  "One of the most heavily cratered worlds known: an ancient surface almost unchanged for billions of years.",
+    "Saturn":    "Crowned by a bright ring system of ice and rock. So low in density it would float in water.",
+    "Enceladus": "Fires icy geysers from a hidden subsurface ocean through cracks at its south pole.",
+    "Dione":     "An icy Saturnian moon laced with bright cliffs of fractured ice.",
+    "Rhea":      "Saturn's second-largest moon — a frozen, heavily cratered ball of ice.",
+    "Titan":     "Larger than Mercury; the only moon with a thick atmosphere and lakes of liquid methane.",
+    "Iapetus":   "The two-toned moon — one hemisphere bright as snow, the other dark as coal.",
+    "Uranus":    "An ice giant tipped on its side, rolling around the Sun like a ball.",
+    "Neptune":   "The windiest planet: supersonic gales top 2,000 km/h beneath a deep-blue methane sky.",
+  };
+  const KIND_FACTS: Record<string, string> = {
+    "Comet":  "An icy wanderer. Sunlight boils off gas and dust into a glowing tail that always points away from the Sun.",
+    "Probe":  "A human-built spacecraft, coasting on momentum across the system.",
+    "Star":   "A massive, self-luminous body whose gravity reshapes every orbit around it.",
+    "Debris": "Fragments flung out by a collision.",
+  };
+  function bodyFact(b: Body): string {
+    return BODY_FACTS[b.name] || KIND_FACTS[bodyKind(b)] || "";
+  }
+
+  // Real-world physical stats (not the stylized sim values) shown in the card.
+  // dia = equatorial diameter, day = rotation/solar day, temp = mean surface,
+  // grav = surface gravity (Earth = 1 g), moons = real satellite count.
+  interface BodyData { dia: string; day: string; temp: string; grav: string; moons?: number; }
+  const BODY_DATA: Record<string, BodyData> = {
+    "Sun":       { dia: "1,392,700 km", day: "25 d",   temp: "5,500 °C",  grav: "28 g" },
+    "Mercury":   { dia: "4,879 km",     day: "176 d",  temp: "167 °C",    grav: "0.38 g", moons: 0 },
+    "Venus":     { dia: "12,104 km",    day: "243 d",  temp: "464 °C",    grav: "0.90 g", moons: 0 },
+    "Earth":     { dia: "12,742 km",    day: "24 h",   temp: "15 °C",     grav: "1 g",    moons: 1 },
+    "Moon":      { dia: "3,474 km",     day: "27.3 d", temp: "−20 °C",    grav: "0.17 g" },
+    "Mars":      { dia: "6,779 km",     day: "24.6 h", temp: "−63 °C",    grav: "0.38 g", moons: 2 },
+    "Phobos":    { dia: "22.5 km",      day: "7.7 h",  temp: "−40 °C",    grav: "0.0006 g" },
+    "Deimos":    { dia: "12.4 km",      day: "30.3 h", temp: "−40 °C",    grav: "0.0003 g" },
+    "Jupiter":   { dia: "139,820 km",   day: "9.9 h",  temp: "−110 °C",   grav: "2.53 g", moons: 95 },
+    "Io":        { dia: "3,643 km",     day: "1.8 d",  temp: "−130 °C",   grav: "0.18 g" },
+    "Europa":    { dia: "3,122 km",     day: "3.5 d",  temp: "−160 °C",   grav: "0.13 g" },
+    "Ganymede":  { dia: "5,268 km",     day: "7.2 d",  temp: "−160 °C",   grav: "0.15 g" },
+    "Callisto":  { dia: "4,821 km",     day: "16.7 d", temp: "−140 °C",   grav: "0.13 g" },
+    "Saturn":    { dia: "116,460 km",   day: "10.7 h", temp: "−140 °C",   grav: "1.06 g", moons: 146 },
+    "Enceladus": { dia: "504 km",       day: "1.4 d",  temp: "−200 °C",   grav: "0.01 g" },
+    "Dione":     { dia: "1,123 km",     day: "2.7 d",  temp: "−186 °C",   grav: "0.02 g" },
+    "Rhea":      { dia: "1,527 km",     day: "4.5 d",  temp: "−174 °C",   grav: "0.03 g" },
+    "Titan":     { dia: "5,150 km",     day: "16 d",   temp: "−179 °C",   grav: "0.14 g" },
+    "Iapetus":   { dia: "1,469 km",     day: "79 d",   temp: "−143 °C",   grav: "0.02 g" },
+    "Uranus":    { dia: "50,724 km",    day: "17.2 h", temp: "−195 °C",   grav: "0.89 g", moons: 28 },
+    "Neptune":   { dia: "49,244 km",    day: "16 h",   temp: "−200 °C",   grav: "1.14 g", moons: 16 },
+  };
+  // Axial tilt (obliquity) of the spin axis vs. the orbital plane, in degrees.
+  // Venus & Uranus are near-flipped — the sandbox draws each body's axis from
+  // this so the famous tilts (Earth's 23°, Uranus on its side) are visible.
+  const BODY_TILT: Record<string, number> = {
+    "Sun": 7.25, "Mercury": 0.03, "Venus": 177.4, "Earth": 23.4, "Mars": 25.2,
+    "Jupiter": 3.1, "Saturn": 26.7, "Uranus": 97.8, "Neptune": 28.3, "Moon": 6.7,
+  };
 
   function drawReadout(): void {
     const f = bodyById(selected) || bodies[0];
@@ -1072,8 +1207,19 @@
       `<div class="name">${f.name}</div><div class="kind">${bodyKind(f)}</div></div></div>`;
     html += row("Mass", `${fmtMass(f.mass)} M⊕`);
 
+    // Real-world physical stats (static reference data for the named body).
+    const data = BODY_DATA[f.name];
+    if (data) {
+      html += row("Diameter", data.dia);
+      html += row("Day", data.day);
+      html += row("Temp", data.temp);
+      html += row("Surface g", data.grav);
+    }
+    if (BODY_TILT[f.name] !== undefined) html += row("Axial tilt", `${BODY_TILT[f.name]}°`);
+
     const moons = bodies.filter(b => b.isMoon && b.parent === f.i).length;
-    if (moons > 0) html += row("Moons", String(moons));
+    if (data && data.moons !== undefined) html += row("Moons", `${moons} sim · ${data.moons} real`);
+    else if (moons > 0) html += row("Moons", String(moons));
 
     if (f.i !== 0) {
       html += row("To Sun", `${(Math.hypot(f.x - sun.x, f.y - sun.y) / AU).toFixed(2)} AU`);
@@ -1092,6 +1238,7 @@
         const mu = BASE_G * GRAV_SCALE * massOf(p);
         if (mu > 0 && r > 0) html += row("Period", `~${fmtPeriod(2 * Math.PI * Math.sqrt(r * r * r / mu))}`);
       }
+      html += row("Eccentr.", f.ecc > 0 ? f.ecc.toFixed(2) : "~circular");
     }
 
     // Energy-conservation diagnostic. Changing G / Sun mass / the body set
@@ -1105,6 +1252,9 @@
     const drift = energy0 !== 0 ? ((e - energy0) / Math.abs(energy0)) * 100 : 0;
     const dStr = (drift >= 0 ? "+" : "") + drift.toFixed(2) + "%";
     html += row("Energy ΔE", dStr);
+
+    const fact = bodyFact(f);
+    if (fact) html += `<div class="sep"></div><div class="fact">${fact}</div>`;
 
     html += `<div class="sep"></div>`;
     html += `<span class="dim">Bodies ${bodies.length} · G ${GRAV_SCALE.toFixed(2)}× · ${TIME_SCALE.toFixed(2)}×t</span>`;
@@ -1202,6 +1352,8 @@
   $<HTMLInputElement>("t_vectors").addEventListener("change", e => showVectors = (e.target as HTMLInputElement).checked);
   $<HTMLInputElement>("t_bary").addEventListener("change", e => showBary = (e.target as HTMLInputElement).checked);
   $<HTMLInputElement>("t_tides").addEventListener("change", e => tides = (e.target as HTMLInputElement).checked);
+  $<HTMLInputElement>("t_hz").addEventListener("change", e => showHZ = (e.target as HTMLInputElement).checked);
+  $<HTMLInputElement>("t_axes").addEventListener("change", e => showAxes = (e.target as HTMLInputElement).checked);
 
   const pauseBtn = $<HTMLButtonElement>("b_pause");
   pauseBtn.addEventListener("click", () => {
@@ -1240,6 +1392,8 @@
     setToggle("t_vectors", false);
     setToggle("t_bary", false);
     setToggle("t_tides", false);
+    setToggle("t_hz", false);
+    setToggle("t_axes", false);
     setLaunchMode(false);
     setAddStarMode(false);
     viewSpin = 0; viewTilt = DEFAULT_TILT; // default perspective
@@ -1402,9 +1556,50 @@
     }
     afterPreset();
   }
+  // A compact red-dwarf system: seven small rocky worlds packed inside what
+  // would be Mercury's orbit, echoing the real TRAPPIST-1 (three in the HZ).
+  function presetTrappist(): void {
+    clearWorld();
+    const star = mkStar(0, 0, 0, 0, 333000 * 0.09, "#ff6b4d", "TRAPPIST-1");
+    const planets: [number, number, string, string][] = [
+      [0.30, 4.6, "#c99", "TRAPPIST-1 b"], [0.40, 4.4, "#cb8", "TRAPPIST-1 c"],
+      [0.52, 4.2, "#9cf", "TRAPPIST-1 d"], [0.66, 4.6, "#6fb1ff", "TRAPPIST-1 e"],
+      [0.80, 4.8, "#8fd", "TRAPPIST-1 f"], [0.96, 4.6, "#7ec", "TRAPPIST-1 g"],
+      [1.14, 4.0, "#acd", "TRAPPIST-1 h"],
+    ];
+    for (const [R, rad, col, nm] of planets) {
+      bodies.push(spawnOrbiter(star, R, rad, 0.6 + Math.random() * 0.6, col, nm, false, 0.01));
+    }
+    afterPreset();
+    setToggle("t_hz", true);   // the packed HZ is the whole point — show it
+  }
+  // The familiar Solar System, then a swarm of comets falling in from the Oort
+  // cloud on near-parabolic plunges — tails flare as they round the Sun.
+  function presetCometShower(): void {
+    resetControls();
+    makeBodies();
+    const mu = BASE_G * bodies[0].mass * SUN_SCALE;
+    for (let n = 0; n < 14; n++) {
+      cometN++;
+      const ang = Math.random() * Math.PI * 2;
+      const r = (5.0 + Math.random() * 2.5) * AU;
+      const x = Math.cos(ang) * r, y = Math.sin(ang) * r;
+      const toSun = Math.atan2(-y, -x) + (Math.random() - 0.5) * 0.6;
+      const v = Math.sqrt(mu / r) * (0.95 + Math.random() * 0.2) * Math.sqrt(Math.max(0.2, GRAV_SCALE));
+      const id = nextId++;
+      bodies.push({
+        i: id, name: "Comet " + cometN, color: "#9fe8ff",
+        distAU: r / AU, radius: 2.2, mass: 0.0001, parent: 0, isMoon: false, ecc: 0,
+        x, y, vx: Math.cos(toSun) * v, vy: Math.sin(toSun) * v, trail: [], extra: true,
+      });
+      recordAdded(id);
+    }
+    afterPreset();
+  }
   const presets: Record<string, () => void> = {
     binary: presetBinary, circumbinary: presetCircumbinary,
     capture: presetCapture, chaos: presetChaos,
+    trappist: presetTrappist, comets: presetCometShower,
   };
   const selPreset = $<HTMLSelectElement>("sel_preset");
   selPreset.addEventListener("change", () => {
@@ -1600,7 +1795,7 @@
       sc: [TIME_SCALE, GRAV_SCALE, SUN_SCALE, ZOOM, STAR_MASS_SCALE],
       vw: [+viewSpin.toFixed(3), +viewTilt.toFixed(3)],
       tg: [showTrails, showOrbits, showLabels, REAL_SCALE, collisions, showRings, showPredict,
-           showField, showVectors, showBary, tides],
+           showField, showVectors, showBary, tides, showHZ, showAxes],
       t: +simTime.toFixed(2),
       f: cam.focus,
       b: bodies.map(b => [
@@ -1649,6 +1844,7 @@
       setToggle("t_predict", !!t[6]);
       setToggle("t_field", !!t[7]); setToggle("t_vectors", !!t[8]);
       setToggle("t_bary", !!t[9]); setToggle("t_tides", !!t[10]);
+      setToggle("t_hz", !!t[11]); setToggle("t_axes", !!t[12]);
       simTime = p.t || 0;
       cam.focus = p.f ?? 0; selected = cam.focus;
       // Belts only make sense for a Sun-like central system; recreate if present.

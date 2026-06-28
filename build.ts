@@ -48,7 +48,10 @@ const builtAt =
   `${part("year")}-${part("month")}-${part("day")} ` +
   `${part("hour")}:${part("minute")} ${part("timeZoneName")}`;
 const scriptName = "app.js";
-const html = renderHTML({ css, scriptSrc: scriptName, builtAt });
+// Cache-bust the script URL so browsers fetch the fresh build, not a stale
+// cached app.js. The token is the build epoch (ms); changes every build.
+const scriptSrc = `${scriptName}?v=${Date.now()}`;
+const html = renderHTML({ css, scriptSrc, builtAt });
 
 const outDir = join(root, "dist");
 mkdirSync(outDir, { recursive: true });

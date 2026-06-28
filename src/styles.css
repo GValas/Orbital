@@ -141,6 +141,10 @@ select.sel {
 #readout .k { display: inline-block; min-width: 62px; color: var(--text-dim); }
 #readout .sep { height: 1px; background: var(--panel-border); margin: 7px 0; }
 #readout .dim { color: var(--text-dim); }
+#readout .fact {
+  max-width: 230px; color: var(--text-dim); font-size: 11px; line-height: 1.5;
+  font-variant-numeric: normal; opacity: .92;
+}
 
 /* elapsed-time counter (bottom-left) */
 #dayclock {

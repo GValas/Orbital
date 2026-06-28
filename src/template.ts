@@ -69,6 +69,10 @@ const BODY = `
         <label class="switch"><input type="checkbox" id="t_bary"><span class="slider-sw"></span></label></div>
       <div class="toggle-row"><label for="t_tides">Tides</label>
         <label class="switch"><input type="checkbox" id="t_tides"><span class="slider-sw"></span></label></div>
+      <div class="toggle-row"><label for="t_hz">Habitable zone</label>
+        <label class="switch"><input type="checkbox" id="t_hz"><span class="slider-sw"></span></label></div>
+      <div class="toggle-row"><label for="t_axes">Spin axes</label>
+        <label class="switch"><input type="checkbox" id="t_axes"><span class="slider-sw"></span></label></div>
     </div>
   </div>
 
@@ -108,6 +112,8 @@ const BODY = `
       <option value="circumbinary">Circumbinary planets</option>
       <option value="capture">Stellar fly-by</option>
       <option value="chaos">Chaos cluster</option>
+      <option value="trappist">TRAPPIST-1 system</option>
+      <option value="comets">Comet shower</option>
     </select>
   </div>
 
