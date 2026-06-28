@@ -1573,10 +1573,25 @@
   }
 
   const musicBtn = $<HTMLButtonElement>("b_music");
+  let musicWanted = true;                 // on by default…
+  musicBtn.classList.add("active");
   musicBtn.addEventListener("click", () => {
-    if (musicOn) { stopMusic(); musicBtn.classList.remove("active"); }
-    else { startMusic(); musicBtn.classList.add("active"); showToast("🎵 Ambient space — on"); }
+    if (musicOn) { musicWanted = false; stopMusic(); musicBtn.classList.remove("active"); }
+    else { musicWanted = true; startMusic(); musicBtn.classList.add("active"); showToast("🎵 Ambient space — on"); }
   });
+  // …but autoplay policies require a user gesture, so start on the first
+  // interaction anywhere (other than the button, which manages itself).
+  function firstGesture(e: Event): void {
+    const t = e.target as HTMLElement | null;
+    if (t && t.closest && t.closest("#b_music")) return;
+    if (musicWanted && !musicOn) startMusic();
+    if (musicOn) {
+      window.removeEventListener("pointerdown", firstGesture);
+      window.removeEventListener("keydown", firstGesture);
+    }
+  }
+  window.addEventListener("pointerdown", firstGesture);
+  window.addEventListener("keydown", firstGesture);
 
   // ---- Share / restore via URL hash ----
   $("b_share").addEventListener("click", () => {
