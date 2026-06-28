@@ -1191,7 +1191,11 @@
   };
 
   function drawReadout(): void {
-    const f = bodyById(selected) || bodies[0];
+    // No selection (e.g. tapped empty space) — hide the card for an unobstructed
+    // view, which matters most on small/mobile screens.
+    const f = bodyById(selected);
+    if (!f) { readoutEl.style.display = "none"; return; }
+    readoutEl.style.display = "";
     const sun = bodies[0];
     const speed = Math.hypot(f.vx, f.vy);
 
@@ -2055,7 +2059,7 @@
       const rad = (REAL_SCALE ? 6 : b.radius) + 8;
       if (d < Math.max(bestD, rad)) { bestD = d; best = b.i; }
     }
-    if (best >= 0) selected = best;
+    selected = best;   // best === -1 when the click missed every body: hides the card
   }
 
   // Remove a body from the sim. Its children are freed (re-parented to the Sun's
