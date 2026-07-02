@@ -6,8 +6,8 @@ Guidance for working in this repository.
 
 Orbital — a single-page, dependency-free **N-body solar system simulator**.
 Written in TypeScript, compiled into a static `dist/` (HTML5 Canvas, vanilla JS,
-no framework, no runtime deps). The build emits exactly two files:
-`dist/index.html` (markup + inlined CSS) and `dist/app.js` (the simulation).
+no framework, no runtime deps). The build emits exactly one file:
+`dist/index.html` — a single self-contained file (markup + inlined CSS + inlined JS).
 
 ## Golden rule
 
@@ -20,8 +20,8 @@ and regenerate.
 ```
 src/main.ts        Simulation + physics + rendering + all UI wiring (browser TS)
 src/styles.css     Dashboard / scene / overlay styling
-src/template.ts    HTML shell; renderHTML() inlines the CSS, links dist/app.js
-build.ts           Generator: strips TS types, writes dist/index.html + dist/app.js
+src/template.ts    HTML shell; renderHTML() inlines the CSS and the compiled JS
+build.ts           Generator: strips TS types, writes a self-contained dist/index.html
 build.sh           Wrapper around build.ts (--open / --serve / --check)
 .devcontainer/     VS Code / Codespaces dev container (Node 24)
 ```
@@ -62,7 +62,7 @@ Voyager escape were verified) rather than only eyeballing the canvas.
 
 ## Deploy
 
-The build output (`dist/`) is a plain static site — two files, no server-side
+The build output (`dist/`) is a plain static site — one file, no server-side
 component, copyable to any static host (GitHub Pages, Netlify, an nginx/Caddy
 docroot, S3, …).
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# build.sh — compile the TypeScript sources into ./dist (index.html + app.js).
+# build.sh — compile the TypeScript sources into ./dist (a single index.html).
 #
 #   ./build.sh            Build dist/
 #   ./build.sh --serve    Build, then serve dist/ at http://localhost:8000

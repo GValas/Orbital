@@ -5,7 +5,7 @@ dashboard. Every body attracts every other (`F = G·m₁·m₂/r²`), so the gra
 mass / time controls genuinely reshape the orbits.
 
 Written in **TypeScript** and compiled into a dependency-free static site
-(`dist/index.html` + `dist/app.js`) by a small build script — no framework,
+(a single self-contained `dist/index.html`) by a small build script — no framework,
 no runtime dependencies.
 
 ![Orbital — tilted view of the solar system](docs/screenshot.png)
@@ -81,8 +81,8 @@ build — type-stripping uses Node's built-in `module.stripTypeScriptTypes`.
 node build.ts
 ```
 
-This produces a `dist/` folder with exactly two files — `index.html` (markup +
-inlined CSS) and `app.js` (the simulation). Open `dist/index.html` in any modern
+This produces a `dist/` folder with exactly one file — `index.html` (markup +
+inlined CSS **and** inlined JS — one file). Open `dist/index.html` in any modern
 browser, or run `./build.sh --serve` to serve `dist/` at
 `http://localhost:8000`.
 
@@ -102,7 +102,7 @@ npm run serve          # build + serve dist/ on http://localhost:8000
 
 ## Deploy
 
-The build output is a plain static site — copy the two files in `dist/` to any
+The build output is a plain static site — copy the single `dist/index.html` to any
 static host (GitHub Pages, Netlify, an nginx/Caddy docroot, an S3 bucket, …).
 There is no server-side component and nothing to configure.
 
@@ -146,8 +146,8 @@ npm run deploy -- --dry-run   # aperçu sans rien écrire
 ```
 src/main.ts        Simulation + rendering + UI (browser TypeScript)
 src/styles.css     Dashboard / scene styling
-src/template.ts    HTML shell; inlines the CSS, links dist/app.js
-build.ts           Generator → strips types, writes dist/index.html + dist/app.js
+src/template.ts    HTML shell; inlines the CSS and the compiled JS
+build.ts           Generator → strips types, writes a self-contained dist/index.html
 build.sh           Convenience wrapper (build / --open / --serve / --check)
 .devcontainer/     VS Code / Codespaces dev container (Node 24)
 dist/              ← GENERATED build output (gitignored). Do not edit by hand.
