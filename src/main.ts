@@ -27,6 +27,7 @@
     trail: Vec2[];
     extra: boolean;        // true for runtime-spawned bodies (comets)
     isStar?: boolean;      // true for runtime-dropped stars (self-lit, glowing)
+    isHole?: boolean;      // true for black holes (event horizon + accretion disk)
   }
 
   interface Star { x: number; y: number; r: number; a: number; tw: number; }
@@ -94,6 +95,7 @@
   let paused = false;
   let collisions = true;                  // merge bodies on contact
   let simTime = 0;                        // total elapsed simulation time (sim-seconds)
+  let timeDir = 1;                        // +1 forward, −1 rewinding (leapfrog is reversible)
 
   function makeBodies(): void {
     bodies = DEFS.map((d, i): Body => ({
@@ -148,6 +150,7 @@
 
   // Random system: a star with up to 10 planets, each with up to 4 moons.
   function makeRandomSystem(): void {
+    endMission(null);
     bodies = [];
     nextId = 0;
     flashes.length = 0;
@@ -422,6 +425,161 @@
     return path;
   }
 
+  // ----------------------- Orbital elements ------------------------
+  // Osculating 2-body elements of `b` about its parent, from the instantaneous
+  // state vector (vis-viva). Returns null when parentless or unbound.
+  interface Elements {
+    a: number; e: number; rp: number; ra: number; period: number;
+    px: number; py: number;          // unit vector toward periapsis
+    parent: Body;
+  }
+  function orbitalElements(b: Body): Elements | null {
+    if (b.parent === null) return null;
+    const p = bodyById(b.parent);
+    if (!p || p === b) return null;
+    const mu = BASE_G * GRAV_SCALE * massOf(p);
+    if (mu <= 0) return null;
+    const rx = b.x - p.x, ry = b.y - p.y;
+    const vx = b.vx - p.vx, vy = b.vy - p.vy;
+    const r = Math.hypot(rx, ry);
+    if (r < 1e-9) return null;
+    const v2 = vx * vx + vy * vy;
+    const eps = v2 / 2 - mu / r;                 // specific orbital energy
+    if (eps >= 0) return null;                   // parabolic / hyperbolic
+    const a = -mu / (2 * eps);
+    // Eccentricity vector (points at periapsis): e = ((v²−μ/r)·r − (r·v)·v)/μ
+    const rv = rx * vx + ry * vy;
+    const ex = ((v2 - mu / r) * rx - rv * vx) / mu;
+    const ey = ((v2 - mu / r) * ry - rv * vy) / mu;
+    const el = Math.hypot(ex, ey);
+    const e = Math.min(0.999999, el);
+    const ux = el > 1e-6 ? ex / el : rx / r, uy = el > 1e-6 ? ey / el : ry / r;
+    return {
+      a, e, rp: a * (1 - e), ra: a * (1 + e),
+      period: 2 * Math.PI * Math.sqrt(a * a * a / mu),
+      px: ux, py: uy, parent: p,
+    };
+  }
+
+  // Periapsis / apoapsis markers on the selected body's osculating orbit.
+  function drawApsides(): void {
+    const f = bodyById(selected);
+    if (!f || f.parent === null) return;
+    const el = orbitalElements(f);
+    if (!el || el.e < 0.01) return;              // ~circular: apsides meaningless
+    const pts: [number, number, string][] = [
+      [el.parent.x + el.px * el.rp, el.parent.y + el.py * el.rp, "peri"],
+      [el.parent.x - el.px * el.ra, el.parent.y - el.py * el.ra, "apo"],
+    ];
+    ctx.save();
+    ctx.strokeStyle = "#ffd27a"; ctx.fillStyle = "rgba(255,210,122,0.9)";
+    ctx.lineWidth = 1.2;
+    ctx.font = "9.5px ui-sans-serif, system-ui"; ctx.textAlign = "center";
+    for (const [wx, wy, label] of pts) {
+      const [sx, sy] = worldToScreen(wx, wy);
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - 4); ctx.lineTo(sx + 4, sy);
+      ctx.lineTo(sx, sy + 4); ctx.lineTo(sx - 4, sy);
+      ctx.closePath(); ctx.stroke();
+      ctx.fillText(label, sx, sy - 8);
+    }
+    ctx.restore();
+  }
+
+  // ------------------------ Lagrange points ------------------------
+  // L1–L5 of the (parent, selected body) pair, using the standard restricted
+  // three-body approximations (Hill radius for L1/L2). Only meaningful when
+  // the primary dominates, so the markers hide when m1 < 20·m2.
+  function drawLagrange(): void {
+    if (!showLagrange) return;
+    const b = bodyById(selected);
+    if (!b || b.parent === null) return;
+    const p = bodyById(b.parent);
+    if (!p || p === b) return;
+    const m1 = massOf(p), m2 = massOf(b);
+    if (m2 <= 0 || m1 < m2 * 20) return;
+    const dx = b.x - p.x, dy = b.y - p.y;
+    const r = Math.hypot(dx, dy);
+    if (r < 1e-6) return;
+    const ux = dx / r, uy = dy / r;
+    const d = r * Math.cbrt(m2 / (3 * m1));      // Hill-sphere distance
+    const l3 = r * (1 + 5 * m2 / (12 * m1));     // slightly outside the mirror orbit
+    const cs = 0.5, sn = Math.sqrt(3) / 2;       // ±60° for L4/L5
+    const pts: [number, number, string][] = [
+      [p.x + ux * (r - d), p.y + uy * (r - d), "L1"],
+      [p.x + ux * (r + d), p.y + uy * (r + d), "L2"],
+      [p.x - ux * l3, p.y - uy * l3, "L3"],
+      [p.x + (ux * cs - uy * sn) * r, p.y + (uy * cs + ux * sn) * r, "L4"],
+      [p.x + (ux * cs + uy * sn) * r, p.y + (uy * cs - ux * sn) * r, "L5"],
+    ];
+    ctx.save();
+    ctx.strokeStyle = "rgba(159,209,122,0.9)"; ctx.fillStyle = "rgba(159,209,122,0.9)";
+    ctx.lineWidth = 1.2;
+    ctx.font = "9.5px ui-sans-serif, system-ui"; ctx.textAlign = "center";
+    for (const [wx, wy, label] of pts) {
+      const [sx, sy] = worldToScreen(wx, wy);
+      ctx.beginPath();
+      ctx.moveTo(sx - 4, sy); ctx.lineTo(sx + 4, sy);
+      ctx.moveTo(sx, sy - 4); ctx.lineTo(sx, sy + 4);
+      ctx.stroke();
+      ctx.fillText(label, sx, sy - 7);
+    }
+    ctx.restore();
+  }
+
+  // ---------------- Kepler's second law visualisation ---------------
+  // While enabled, the selected body's parent-relative track is sampled each
+  // frame and drawn as radius-vector wedges bucketed by equal sim-time — the
+  // wedges all sweep equal areas (short & fat near periapsis, long & thin near
+  // apoapsis), which is exactly Kepler's second law.
+  let kepId = -1;
+  let kepSamples: { x: number; y: number; t: number }[] = [];
+  function sampleKepler(): void {
+    if (!showKepler || timeDir < 0) { kepSamples.length = 0; kepId = -1; return; }
+    const b = bodyById(selected);
+    if (!b || b.parent === null) { kepSamples.length = 0; kepId = -1; return; }
+    if (b.i !== kepId) { kepSamples.length = 0; kepId = b.i; }
+    const p = bodyById(b.parent);
+    if (!p) return;
+    kepSamples.push({ x: b.x - p.x, y: b.y - p.y, t: simTime });
+    const el = orbitalElements(b);
+    const span = el ? el.period : 2;             // keep ~one orbit of history
+    while (kepSamples.length && kepSamples[0].t < simTime - span) kepSamples.shift();
+    if (kepSamples.length > 4000) kepSamples.shift();
+  }
+  function drawKepler(): void {
+    if (!showKepler || kepSamples.length < 3) return;
+    const b = bodyById(kepId);
+    if (!b || b.parent === null) return;
+    const p = bodyById(b.parent);
+    if (!p) return;
+    const el = orbitalElements(b);
+    const interval = (el ? el.period : 2) / 8;   // 8 equal-time wedges per orbit
+    if (!(interval > 0)) return;
+    ctx.save();
+    const [px0, py0] = worldToScreen(p.x, p.y);
+    const flush = (from: number, to: number, parity: number): void => {
+      if (to - from < 1) return;
+      ctx.beginPath();
+      ctx.moveTo(px0, py0);
+      for (let i = from; i <= to; i++) {
+        const [sx, sy] = worldToScreen(p.x + kepSamples[i].x, p.y + kepSamples[i].y);
+        ctx.lineTo(sx, sy);
+      }
+      ctx.closePath();
+      ctx.fillStyle = parity ? "rgba(122,162,255,0.15)" : "rgba(255,210,122,0.15)";
+      ctx.fill();
+    };
+    let bucket = Math.floor(kepSamples[0].t / interval);
+    let start = 0;
+    for (let i = 1; i < kepSamples.length; i++) {
+      const bk = Math.floor(kepSamples[i].t / interval);
+      if (bk !== bucket) { flush(start, i, bucket & 1); start = i; bucket = bk; }
+    }
+    flush(start, kepSamples.length - 1, bucket & 1);
+    ctx.restore();
+  }
+
   // ------------------------- Collisions ----------------------------
   // Accretion: when two bodies overlap they merge into one, conserving
   // momentum. The more massive body survives and grows; the other is removed.
@@ -467,6 +625,7 @@
     if (cam.focus === gone.i) cam.focus = survivor.i;
     if (selected === gone.i) selected = survivor.i;
     flashes.push({ x: survivor.x, y: survivor.y, age: 0, max: 0.5, r: survivor.radius });
+    sfxBoom(Math.cbrt(Math.min(gone.radius, survivor.radius)) * 0.9);
   }
 
   // ------------------------- Tidal disruption ----------------------
@@ -496,6 +655,7 @@
     if (cam.focus === b.i) cam.focus = s.i;
     if (selected === b.i) selected = s.i;
     flashes.push({ x: b.x, y: b.y, age: 0, max: 0.6, r: b.radius * 2 });
+    sfxBoom(1.4);
     const n = Math.min(10, 5 + Math.floor(b.radius));
     const frac = 1 / n;
     const spread = Math.hypot(b.vx, b.vy) * 0.12 + 0.4;
@@ -644,12 +804,15 @@
   let tides = false;         // tidal (Roche) disruption near stars — off by default
   let showHZ = false;        // habitable ("Goldilocks") zone ring around the star
   let showAxes = false;      // draw each body's spin axis at its real obliquity
+  let showLagrange = false;  // L1–L5 markers for the selected body's pair
+  let showKepler = false;    // equal-area wedges (Kepler's 2nd law) for the selection
+  let sfxOn = true;          // synthesized event sounds (collisions, launches…)
 
-  // Drag-to-aim: arms either the comet-launcher ("launch") or the star-dropper
-  // ("star"). Press + drag on empty space sets the new body's velocity (the drag
-  // vector × gain); a plain click (no drag) drops it at rest.
-  let launchMode = false, addStarMode = false;
-  let aimKind: "none" | "launch" | "star" = "none";
+  // Drag-to-aim: arms the comet-launcher ("launch"), the star-dropper ("star")
+  // or the black-hole dropper ("hole"). Press + drag on empty space sets the new
+  // body's velocity (the drag vector × gain); a plain click drops it at rest.
+  let launchMode = false, addStarMode = false, addHoleMode = false;
+  let aimKind: "none" | "launch" | "star" | "hole" = "none";
   let launchStartW: Vec2 | null = null;   // aim origin, world coords
   let launchCurS: Vec2 | null = null;     // current pointer, screen coords
   let launchN = 0;
@@ -759,7 +922,7 @@
     if (aimKind === "none" || !launchStartW || !launchCurS) return;
     const [sx, sy] = worldToScreen(launchStartW[0], launchStartW[1]);
     const [ex, ey] = launchCurS;
-    const col = aimKind === "star" ? "#ffd9a0" : "#ffd27a";
+    const col = aimKind === "star" ? "#ffd9a0" : aimKind === "hole" ? "#8fb8ff" : "#ffd27a";
     ctx.save();
     ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
@@ -775,6 +938,7 @@
     const speed = Math.hypot(p1[0] - launchStartW[0], p1[1] - launchStartW[1]) * LAUNCH_GAIN;
     let label = `${speed.toFixed(0)} u/s`;
     if (aimKind === "star") label += ` · ${fmtMass(333000 * STAR_MASS_SCALE)} M⊕`;
+    if (aimKind === "hole") label += ` · ${fmtMass(333000 * STAR_MASS_SCALE * 10)} M⊕`;
     ctx.font = "11px ui-sans-serif, system-ui"; ctx.textAlign = "left";
     ctx.fillStyle = "#0a0c18cc";
     const tw = ctx.measureText(label).width;
@@ -976,9 +1140,12 @@
       }
     }
 
+    drawKepler();
     drawRings();
     drawCometTails();
     drawPrediction();
+    drawApsides();
+    drawLagrange();
 
     // bodies, back-to-front so nearer ones overlap farther ones when tilted
     const sunBody = bodyById(0) || bodies[0];
@@ -988,6 +1155,19 @@
     for (const b of order) {
       const [sx, sy] = worldToScreen(b.x, b.y);
       const rad = screenRadius(b);
+
+      if (b.isHole) {
+        drawBlackHole(sx, sy, rad, time);
+        if (showLabels && rad > 1.2) {
+          ctx.globalAlpha = 0.85;
+          ctx.fillStyle = "#cfd6ef";
+          ctx.font = "11.5px ui-sans-serif, system-ui";
+          ctx.textAlign = "center";
+          ctx.fillText(b.name, sx, sy - rad * 3.6 - 6);
+          ctx.globalAlpha = 1;
+        }
+        continue;
+      }
 
       if (b.i === 0) {
         const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, rad * 4.5);
@@ -1094,6 +1274,34 @@
     updateDayClock();
   }
 
+  // A dropped black hole: additive accretion disk + photon ring around a
+  // pitch-black event horizon (drawn instead of the usual lit planet disk).
+  function drawBlackHole(sx: number, sy: number, rad: number, time: number): void {
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.globalCompositeOperation = "lighter";
+    ctx.save();
+    ctx.rotate(time * 0.0005);
+    ctx.scale(1, 0.38);                              // tilted accretion disk
+    const disk = ctx.createRadialGradient(0, 0, rad * 1.2, 0, 0, rad * 3.6);
+    disk.addColorStop(0, "rgba(255,196,110,0.55)");
+    disk.addColorStop(0.5, "rgba(190,130,255,0.18)");
+    disk.addColorStop(1, "rgba(130,90,255,0)");
+    ctx.fillStyle = disk;
+    ctx.beginPath(); ctx.arc(0, 0, rad * 3.6, 0, 7); ctx.fill();
+    ctx.strokeStyle = "rgba(255,220,160,0.45)";      // hot inner rim
+    ctx.lineWidth = rad * 0.5;
+    ctx.beginPath(); ctx.arc(0, 0, rad * 1.7, 0, 7); ctx.stroke();
+    ctx.restore();
+    ctx.globalCompositeOperation = "source-over";
+    ctx.strokeStyle = "rgba(255,240,200,0.9)";       // photon ring
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, rad * 1.22, 0, 7); ctx.stroke();
+    ctx.fillStyle = "#000005";                       // event horizon
+    ctx.beginPath(); ctx.arc(0, 0, rad * 1.12, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+
   // --------------------------- Readout -----------------------------
   const readoutEl = $("readout");
   const dayEl = $("dayclock");
@@ -1110,6 +1318,7 @@
     return m.toFixed(3);
   }
   function bodyKind(b: Body): string {
+    if (b.isHole) return "Black hole";
     if (isStarBody(b)) return "Star";
     if (b.name === "Debris") return "Debris";
     if (b.extra) return b.name.startsWith("Comet") ? "Comet" : "Probe";
@@ -1160,6 +1369,7 @@
     "Comet":  "An icy wanderer. Sunlight boils off gas and dust into a glowing tail that always points away from the Sun.",
     "Probe":  "A human-built spacecraft, coasting on momentum across the system.",
     "Star":   "A massive, self-luminous body whose gravity reshapes every orbit around it.",
+    "Black hole": "A collapsed star so dense not even light escapes its event horizon. Only its accretion disk betrays it.",
     "Debris": "Fragments flung out by a collision.",
   };
   function bodyFact(b: Body): string {
@@ -1248,13 +1458,16 @@
     html += row("Speed", `${speed.toFixed(1)} u/s`);
 
     if (f.parent !== null) {
-      const p = bodyById(f.parent);
-      if (p) {
-        const r = Math.hypot(f.x - p.x, f.y - p.y);
-        const mu = BASE_G * GRAV_SCALE * massOf(p);
-        if (mu > 0 && r > 0) html += row("Period", `~${fmtPeriod(2 * Math.PI * Math.sqrt(r * r * r / mu))}`);
+      // Live osculating elements — they respond to kicks, edits and fly-bys.
+      const el = orbitalElements(f);
+      if (el) {
+        html += row("Semi-major", `${(el.a / AU).toFixed(2)} AU`);
+        html += row("Peri/Apo", `${(el.rp / AU).toFixed(2)} / ${(el.ra / AU).toFixed(2)} AU`);
+        html += row("Period", `~${fmtPeriod(el.period)}`);
+        html += row("Eccentr.", el.e < 0.005 ? "~circular" : el.e.toFixed(2));
+      } else {
+        html += row("Orbit", "unbound (escape)");
       }
-      html += row("Eccentr.", f.ecc > 0 ? f.ecc.toFixed(2) : "~circular");
     }
 
     // Energy-conservation diagnostic. Changing G / Sun mass / the body set
@@ -1290,7 +1503,7 @@
     }
 
     if (!paused && TIME_SCALE > 0) {
-      const simDt = dt * TIME_SCALE;
+      const simDt = dt * TIME_SCALE * timeDir;
       simTime += simDt;
       // Adaptive sub-stepping: the base rate tracks TIME_SCALE, then tightens
       // (up to ×8) near deep wells — close approaches to a star are stiff and
@@ -1311,8 +1524,11 @@
       for (let s = 0; s < sub; s++) step(h);
 
       advanceRings(simDt);
-      if (tides) resolveTides();
-      if (collisions) resolveCollisions();
+      // Collisions & tides are irreversible — suspend them while rewinding.
+      if (tides && timeDir > 0) resolveTides();
+      if (collisions && timeDir > 0) resolveCollisions();
+      checkPerihelion();
+      sampleKepler();
 
       for (const b of bodies) {
         if (b.parent === null) continue;
@@ -1321,6 +1537,9 @@
         if (b.trail.length > max) b.trail.shift();
       }
     }
+
+    syncEditor();
+    updateMission();
 
     // follow focus (unless the user is actively panning the view)
     const f = bodyById(cam.focus);
@@ -1370,6 +1589,9 @@
   $<HTMLInputElement>("t_tides").addEventListener("change", e => tides = (e.target as HTMLInputElement).checked);
   $<HTMLInputElement>("t_hz").addEventListener("change", e => showHZ = (e.target as HTMLInputElement).checked);
   $<HTMLInputElement>("t_axes").addEventListener("change", e => showAxes = (e.target as HTMLInputElement).checked);
+  $<HTMLInputElement>("t_lagrange").addEventListener("change", e => showLagrange = (e.target as HTMLInputElement).checked);
+  $<HTMLInputElement>("t_kepler").addEventListener("change", e => showKepler = (e.target as HTMLInputElement).checked);
+  $<HTMLInputElement>("t_sfx").addEventListener("change", e => sfxOn = (e.target as HTMLInputElement).checked);
 
   const pauseBtn = $<HTMLButtonElement>("b_pause");
   pauseBtn.addEventListener("click", () => {
@@ -1410,13 +1632,20 @@
     setToggle("t_tides", false);
     setToggle("t_hz", false);
     setToggle("t_axes", false);
+    setToggle("t_lagrange", false);
+    setToggle("t_kepler", false);
+    setToggle("t_sfx", true);
     setLaunchMode(false);
     setAddStarMode(false);
+    setAddHoleMode(false);
+    timeDir = 1;
+    rewindBtn.classList.remove("active");
     viewSpin = 0; viewTilt = DEFAULT_TILT; // default perspective
     if (paused) pauseBtn.click();         // resume if paused
     followSuspended = false;
   }
   function resetDefaults(): void {
+    endMission(null);
     resetControls();
     flashes.length = 0;
     cam.focus = 0; selected = 0; simTime = 0;
@@ -1491,10 +1720,109 @@
   });
   $("b_undo").addEventListener("click", undoLast);
 
+  // ---- Time rewind ----
+  // The leapfrog integrator is time-symmetric, so stepping with a negative dt
+  // literally replays history backwards. Irreversible events (collisions,
+  // tides) are suspended while rewinding.
+  const rewindBtn = $<HTMLButtonElement>("b_rewind");
+  rewindBtn.addEventListener("click", () => {
+    timeDir = -timeDir;
+    rewindBtn.classList.toggle("active", timeDir < 0);
+    showToast(timeDir < 0 ? "⏪ Time reversed" : "▶ Time forward");
+  });
+
+  // ------------------------- Mission mode --------------------------
+  // Gravity golf: a probe leaves Earth toward a random target planet with a
+  // limited fuel budget. Arrow keys / WASD fire impulses relative to the
+  // probe's velocity: ↑ prograde, ↓ retrograde, ←/→ lateral.
+  const missionEl = $("mission");
+  const missionBtn = $<HTMLButtonElement>("b_mission");
+  let missionOn = false, missionProbe = -1, missionTarget = -1, missionFuel = 0;
+  const MISSION_FUEL = 100, THRUST_COST = 4, THRUST_DV = 40;
+  const MISSION_TARGETS = ["Mercury", "Venus", "Mars", "Jupiter", "Saturn"];
+
+  function startMission(): void {
+    resetDefaults();                    // fresh, known solar system
+    const earth = bodies.find(b => b.name === "Earth");
+    const candidates = bodies.filter(b => MISSION_TARGETS.includes(b.name));
+    const target = candidates[Math.floor(Math.random() * candidates.length)];
+    if (!earth || !target) return;
+    const sp = Math.hypot(earth.vx, earth.vy) || 1;
+    const off = earth.radius + 8;
+    const id = nextId++;
+    bodies.push({
+      i: id, name: "Pilot 1", color: "#9effd0",
+      distAU: Math.hypot(earth.x, earth.y) / AU, radius: 1.8, mass: 0.00001,
+      parent: 0, isMoon: false, ecc: 0, extra: true,
+      x: earth.x + (earth.vx / sp) * off, y: earth.y + (earth.vy / sp) * off,
+      vx: earth.vx * 1.12, vy: earth.vy * 1.12,   // gentle prograde boost, still bound
+      trail: [],
+    });
+    recordAdded(id);
+    buildFocusList();
+    missionOn = true; missionProbe = id; missionTarget = target.i; missionFuel = MISSION_FUEL;
+    cam.focus = id; selected = id;
+    selFocus.value = String(id);
+    missionBtn.classList.add("active");
+    missionBtn.textContent = "🚀 Abort";
+    setRange("s_speed", 4);             // brisk but steerable
+    setToggle("t_predict", true);       // show where you're headed
+    sfxBlip(700);
+    showToast(`🚀 Mission: reach ${target.name}! Thrust with ←↑↓→ / WASD`);
+  }
+  function endMission(msg: string | null, win = false): void {
+    if (!missionOn) return;
+    missionOn = false; missionProbe = -1; missionTarget = -1;
+    missionEl.style.display = "none";
+    missionBtn.classList.remove("active");
+    missionBtn.textContent = "🚀 Mission";
+    if (msg) { showToast(msg); sfxChime(win); }
+  }
+  missionBtn.addEventListener("click", () => {
+    if (missionOn) endMission("Mission aborted");
+    else startMission();
+  });
+
+  function missionThrust(dir: "pro" | "retro" | "left" | "right"): void {
+    if (!missionOn || missionFuel < THRUST_COST) return;
+    const probe = bodyById(missionProbe);
+    if (!probe) return;
+    const sp = Math.hypot(probe.vx, probe.vy) || 1;
+    let ux = probe.vx / sp, uy = probe.vy / sp;
+    if (dir === "retro") { ux = -ux; uy = -uy; }
+    else if (dir === "left") { const t = ux; ux = uy; uy = -t; }
+    else if (dir === "right") { const t = ux; ux = -uy; uy = t; }
+    probe.vx += ux * THRUST_DV; probe.vy += uy * THRUST_DV;
+    missionFuel -= THRUST_COST;
+    sfxBlip(440);
+  }
+  function updateMission(): void {
+    if (!missionOn) return;
+    const probe = bodyById(missionProbe), target = bodyById(missionTarget);
+    if (!probe || !target) { endMission("💥 Probe destroyed — mission failed"); return; }
+    const d = Math.hypot(probe.x - target.x, probe.y - target.y);
+    if (d < Math.max(10, target.radius * 2.5)) {
+      endMission(`🏁 ${target.name} reached — mission accomplished!`, true);
+      return;
+    }
+    const sun = bodyById(0);
+    if (sun && Math.hypot(probe.x - sun.x, probe.y - sun.y) > 9 * AU) {
+      endMission("🌌 Probe lost to deep space — mission failed");
+      return;
+    }
+    missionEl.style.display = "block";
+    const fuelPct = Math.max(0, (missionFuel / MISSION_FUEL) * 100);
+    missionEl.innerHTML =
+      `🎯 ${target.name} · ${(d / AU).toFixed(2)} AU ` +
+      `<span class="fuel"><i style="width:${fuelPct}%"></i></span>` +
+      `⛽ ${missionFuel} · ←↑↓→`;
+  }
+
   // ---- Scenario presets ----
   // Pre-built systems that show off the N-body deformation. Each wipes the world
   // and seeds a fresh configuration with physically sensible orbital speeds.
   function clearWorld(): void {
+    endMission(null);
     bodies = []; nextId = 0; flashes.length = 0; addedStack.length = 0;
     belt = []; oort = []; simTime = 0; followSuspended = false;
   }
@@ -1637,7 +1965,7 @@
   const launchBtn = $<HTMLButtonElement>("b_launch");
   function setLaunchMode(on: boolean): void {
     launchMode = on;
-    if (on) setAddStarMode(false);          // the two canvas modes are exclusive
+    if (on) { setAddStarMode(false); setAddHoleMode(false); }  // modes are exclusive
     aimKind = "none"; launchStartW = null; launchCurS = null;
     launchBtn.classList.toggle("active", on);
     launchBtn.textContent = on ? "🎯 Aiming…" : "🎯 Aim & launch";
@@ -1661,6 +1989,7 @@
     selected = id;
     recordAdded(id);
     buildFocusList();
+    sfxBlip(520);
   }
   const LAUNCH_GAIN = 22;   // world-units of speed per world-unit of drag
 
@@ -1672,7 +2001,7 @@
   const addStarBtn = $<HTMLButtonElement>("b_addstar");
   function setAddStarMode(on: boolean): void {
     addStarMode = on;
-    if (on) setLaunchMode(false);           // the two canvas modes are exclusive
+    if (on) { setLaunchMode(false); setAddHoleMode(false); }   // modes are exclusive
     aimKind = "none"; launchStartW = null; launchCurS = null;
     addStarBtn.classList.toggle("active", on);
     addStarBtn.textContent = on ? "☀️ Click / drag…" : "☀️ Add star";
@@ -1701,7 +2030,137 @@
     selected = id;
     recordAdded(id);
     buildFocusList();
+    sfxBlip(330);
     showToast("☀️ Star added — watch the orbits bend");
+  }
+
+  // ---- Black hole (click to drop, or drag to fling — like Add star) ----
+  // 10× the Star-mass slider, tiny radius, no light: a compact monster that
+  // whips everything around it (and shreds what strays close when Tides is on).
+  const holeBtn = $<HTMLButtonElement>("b_hole");
+  function setAddHoleMode(on: boolean): void {
+    addHoleMode = on;
+    if (on) { setLaunchMode(false); setAddStarMode(false); }
+    aimKind = "none"; launchStartW = null; launchCurS = null;
+    holeBtn.classList.toggle("active", on);
+    holeBtn.textContent = on ? "🕳️ Click / drag…" : "🕳️ Black hole";
+    canvas.style.cursor = on ? "crosshair" : "";
+  }
+  holeBtn.addEventListener("click", () => setAddHoleMode(!addHoleMode));
+
+  let holeN = 0;
+  function placeHole(p0: Vec2, p1World: Vec2 = p0): void {
+    holeN++;
+    const mass = 333000 * STAR_MASS_SCALE * 10;
+    const id = nextId++;
+    bodies.push({
+      i: id, name: "Black hole " + holeN, color: "#8fb8ff",
+      distAU: Math.hypot(p0[0], p0[1]) / AU, radius: 7, mass,
+      parent: null, isMoon: false, ecc: 0, extra: true, isStar: true, isHole: true,
+      x: p0[0], y: p0[1],
+      vx: (p1World[0] - p0[0]) * LAUNCH_GAIN, vy: (p1World[1] - p0[1]) * LAUNCH_GAIN,
+      trail: [],
+    });
+    selected = id;
+    recordAdded(id);
+    buildFocusList();
+    sfxBlip(180);
+    showToast("🕳️ Black hole dropped — nothing escapes");
+  }
+
+  // ------------------------- Sound effects -------------------------
+  // Short synthesized cues (no asset files): collision boom, launch blip,
+  // comet-perihelion whoosh, mission chimes. They ride the shared ambient
+  // AudioContext, so they stay silent until the first user gesture creates it
+  // (autoplay policy) and can be muted with the "Sound FX" toggle.
+  function sfxCtx(): AudioContext | null {
+    return sfxOn && audioCtx && audioCtx.state === "running" ? audioCtx : null;
+  }
+  function sfxBoom(size = 1): void {
+    const ctx = sfxCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const dur = 0.5 + 0.3 * Math.min(2, size);
+    const noise = ctx.createBufferSource();
+    const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2);
+    noise.buffer = buf;
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass";
+    lp.frequency.setValueAtTime(900, now);
+    lp.frequency.exponentialRampToValueAtTime(90, now + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(Math.min(0.45, 0.16 * size), now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    noise.connect(lp).connect(g).connect(ctx.destination);
+    const thump = ctx.createOscillator(); thump.type = "sine";
+    thump.frequency.setValueAtTime(120, now);
+    thump.frequency.exponentialRampToValueAtTime(38, now + 0.4);
+    const tg = ctx.createGain();
+    tg.gain.setValueAtTime(Math.min(0.35, 0.14 * size), now);
+    tg.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    thump.connect(tg).connect(ctx.destination);
+    noise.start(now); thump.start(now); thump.stop(now + 0.6);
+  }
+  function sfxBlip(freq = 660): void {
+    const ctx = sfxCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = "triangle";
+    o.frequency.setValueAtTime(freq, now);
+    o.frequency.exponentialRampToValueAtTime(freq * 1.6, now + 0.12);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.09, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+    o.connect(g).connect(ctx.destination);
+    o.start(now); o.stop(now + 0.3);
+  }
+  function sfxWhoosh(): void {
+    const ctx = sfxCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const noise = ctx.createBufferSource();
+    const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * 1.6), ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    noise.buffer = buf;
+    const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 2.2;
+    bp.frequency.setValueAtTime(300, now);
+    bp.frequency.exponentialRampToValueAtTime(2400, now + 0.7);
+    bp.frequency.exponentialRampToValueAtTime(240, now + 1.5);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(0.06, now + 0.6);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+    noise.connect(bp).connect(g).connect(ctx.destination);
+    noise.start(now);
+  }
+  function sfxChime(win: boolean): void {
+    const ctx = sfxCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const notes = win ? [523.25, 659.25, 783.99, 1046.5] : [392, 311.13, 233.08];
+    notes.forEach((f, k) => {
+      const o = ctx.createOscillator(); o.type = "sine"; o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, now + k * 0.12);
+      g.gain.linearRampToValueAtTime(0.12, now + k * 0.12 + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.001, now + k * 0.12 + 1.2);
+      o.connect(g).connect(ctx.destination);
+      o.start(now + k * 0.12); o.stop(now + k * 0.12 + 1.3);
+    });
+  }
+  // Comet-perihelion detector: when a comet's Sun-relative radial velocity
+  // flips from inbound to outbound close to the star, it just rounded
+  // perihelion — cue the whoosh (its tail is at maximum right then).
+  const periRv = new Map<number, number>();
+  function checkPerihelion(): void {
+    const sun = bodyById(0) ?? bodies.find(isStarBody);
+    if (!sun) return;
+    for (const b of bodies) {
+      if (!isComet(b)) continue;
+      const rv = (b.x - sun.x) * (b.vx - sun.vx) + (b.y - sun.y) * (b.vy - sun.vy);
+      const prev = periRv.get(b.i);
+      if (prev !== undefined && prev < 0 && rv >= 0 &&
+          Math.hypot(b.x - sun.x, b.y - sun.y) < 1.4 * AU) sfxWhoosh();
+      periRv.set(b.i, rv);
+    }
   }
 
   // --------------------- Ambient audio (generative) ----------------
@@ -1821,24 +2280,29 @@
   window.addEventListener("pointerdown", firstGesture);
   window.addEventListener("keydown", firstGesture);
 
-  // ---- Share / restore via URL hash ----
-  $("b_share").addEventListener("click", () => {
-    const payload = {
+  // ---- Serialize / restore the full simulation state ----
+  // One payload format shared by the URL-hash share link, the localStorage
+  // save slots, and JSON export/import.
+  function buildStatePayload(): unknown {
+    return {
       v: 1,
       sc: [TIME_SCALE, GRAV_SCALE, SUN_SCALE, ZOOM, STAR_MASS_SCALE],
       vw: [+viewSpin.toFixed(3), +viewTilt.toFixed(3)],
       tg: [showTrails, showOrbits, showLabels, REAL_SCALE, collisions, showRings, showPredict,
-           showField, showVectors, showBary, tides, showHZ, showAxes],
+           showField, showVectors, showBary, tides, showHZ, showAxes, showLagrange, showKepler],
       t: +simTime.toFixed(2),
       f: cam.focus,
       b: bodies.map(b => [
         b.i, b.name, b.color, +b.distAU.toFixed(3), +b.radius.toFixed(2), b.mass,
         b.parent, b.isMoon ? 1 : 0, b.extra ? 1 : 0,
         +b.x.toFixed(2), +b.y.toFixed(2), +b.vx.toFixed(3), +b.vy.toFixed(3),
-        b.isStar ? 1 : 0, +b.ecc.toFixed(3),
+        b.isStar ? 1 : 0, +b.ecc.toFixed(3), b.isHole ? 1 : 0,
       ]),
     };
-    const code = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+  }
+
+  $("b_share").addEventListener("click", () => {
+    const code = btoa(unescape(encodeURIComponent(JSON.stringify(buildStatePayload()))));
     const url = location.origin + location.pathname + "#s=" + code;
     location.hash = "s=" + code;
     if (navigator.clipboard) {
@@ -1849,46 +2313,93 @@
     }
   });
 
-  // Rebuild the full simulation state from a share payload. Returns false if the
-  // hash is absent or unparseable (so boot falls back to the default system).
+  // Rebuild the full simulation state from a payload (share hash, save slot,
+  // or imported JSON). Returns false when the payload isn't valid.
+  function applyStatePayload(p: any): boolean {
+    if (!p || p.v !== 1 || !Array.isArray(p.b) || !Array.isArray(p.sc) || !Array.isArray(p.vw)) return false;
+    endMission(null);
+    bodies = p.b.map((r: any[]): Body => ({
+      i: r[0], name: r[1], color: r[2], distAU: r[3], radius: r[4], mass: r[5],
+      parent: r[6], isMoon: !!r[7], extra: !!r[8], ecc: r[14] ?? 0,
+      x: r[9], y: r[10], vx: r[11], vy: r[12], trail: [],
+      isStar: !!r[13], isHole: !!r[15],
+    }));
+    nextId = bodies.reduce((mx, b) => Math.max(mx, b.i), -1) + 1;
+    addedStack.length = 0;   // stale ids from the previous world could collide
+    flashes.length = 0;
+    setRange("s_speed", Math.round(p.sc[0] * 100));
+    setRange("s_grav", Math.round(p.sc[1] * 100));
+    setRange("s_sun", Math.round(p.sc[2] * 100));
+    setRange("s_zoom", Math.round(p.sc[3] * 100));
+    if (p.sc[4] != null) setRange("s_starmass", Math.round(p.sc[4] * 100));
+    viewSpin = p.vw[0]; viewTilt = p.vw[1];
+    const t = p.tg || [];
+    setToggle("t_trails", !!t[0]); setToggle("t_orbits", !!t[1]);
+    setToggle("t_labels", !!t[2]); setToggle("t_realscale", !!t[3]);
+    setToggle("t_collide", !!t[4]); setToggle("t_rings", !!t[5]);
+    setToggle("t_predict", !!t[6]);
+    setToggle("t_field", !!t[7]); setToggle("t_vectors", !!t[8]);
+    setToggle("t_bary", !!t[9]); setToggle("t_tides", !!t[10]);
+    setToggle("t_hz", !!t[11]); setToggle("t_axes", !!t[12]);
+    setToggle("t_lagrange", !!t[13]); setToggle("t_kepler", !!t[14]);
+    simTime = p.t || 0;
+    cam.focus = p.f ?? 0; selected = cam.focus;
+    followSuspended = false;
+    // Belts only make sense for a Sun-like central system; recreate if present.
+    if (bodies.some(b => b.name === "Earth") || bodies.some(b => b.name === "Jupiter")) makeRings();
+    else { belt = []; oort = []; }
+    baselineEnergy();
+    buildFocusList();
+    return true;
+  }
   function restoreFromHash(): boolean {
     const m = location.hash.match(/s=([^&]+)/);
     if (!m) return false;
     try {
-      const p = JSON.parse(decodeURIComponent(escape(atob(m[1]))));
-      if (!p || p.v !== 1 || !Array.isArray(p.b)) return false;
-      bodies = p.b.map((r: any[]): Body => ({
-        i: r[0], name: r[1], color: r[2], distAU: r[3], radius: r[4], mass: r[5],
-        parent: r[6], isMoon: !!r[7], extra: !!r[8], ecc: r[14] ?? 0,
-        x: r[9], y: r[10], vx: r[11], vy: r[12], trail: [],
-        isStar: !!r[13],
-      }));
-      nextId = bodies.reduce((mx, b) => Math.max(mx, b.i), -1) + 1;
-      addedStack.length = 0;   // stale ids from the previous world could collide
-      setRange("s_speed", Math.round(p.sc[0] * 100));
-      setRange("s_grav", Math.round(p.sc[1] * 100));
-      setRange("s_sun", Math.round(p.sc[2] * 100));
-      setRange("s_zoom", Math.round(p.sc[3] * 100));
-      if (p.sc[4] != null) setRange("s_starmass", Math.round(p.sc[4] * 100));
-      viewSpin = p.vw[0]; viewTilt = p.vw[1];
-      const t = p.tg || [];
-      setToggle("t_trails", !!t[0]); setToggle("t_orbits", !!t[1]);
-      setToggle("t_labels", !!t[2]); setToggle("t_realscale", !!t[3]);
-      setToggle("t_collide", !!t[4]); setToggle("t_rings", !!t[5]);
-      setToggle("t_predict", !!t[6]);
-      setToggle("t_field", !!t[7]); setToggle("t_vectors", !!t[8]);
-      setToggle("t_bary", !!t[9]); setToggle("t_tides", !!t[10]);
-      setToggle("t_hz", !!t[11]); setToggle("t_axes", !!t[12]);
-      simTime = p.t || 0;
-      cam.focus = p.f ?? 0; selected = cam.focus;
-      // Belts only make sense for a Sun-like central system; recreate if present.
-      if (bodies.some(b => b.name === "Earth") || bodies.some(b => b.name === "Jupiter")) makeRings();
-      else { belt = []; oort = []; }
-      baselineEnergy();
-      buildFocusList();
-      return true;
+      return applyStatePayload(JSON.parse(decodeURIComponent(escape(atob(m[1])))));
     } catch { return false; }
   }
+
+  // ---- Local save slots + JSON export/import ----
+  const slotKey = (n: string): string => "orbital.save." + n;
+  const curSlot = (): string => $<HTMLSelectElement>("sel_slot").value;
+  $("b_save").addEventListener("click", () => {
+    try {
+      localStorage.setItem(slotKey(curSlot()), JSON.stringify(buildStatePayload()));
+      showToast("💾 Saved to slot " + curSlot());
+    } catch { showToast("⚠️ Could not save (storage unavailable)"); }
+  });
+  $("b_load").addEventListener("click", () => {
+    let raw: string | null = null;
+    try { raw = localStorage.getItem(slotKey(curSlot())); } catch { /* blocked */ }
+    if (!raw) { showToast("Slot " + curSlot() + " is empty"); return; }
+    try {
+      if (applyStatePayload(JSON.parse(raw))) showToast("📂 Loaded slot " + curSlot());
+      else showToast("⚠️ Slot " + curSlot() + " is corrupted");
+    } catch { showToast("⚠️ Slot " + curSlot() + " is corrupted"); }
+  });
+  $("b_export").addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify(buildStatePayload())], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "orbital-system.json";
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    showToast("⬇ System exported as JSON");
+  });
+  const importInput = $<HTMLInputElement>("f_import");
+  $("b_import").addEventListener("click", () => importInput.click());
+  importInput.addEventListener("change", () => {
+    const file = importInput.files && importInput.files[0];
+    importInput.value = "";              // allow re-importing the same file
+    if (!file) return;
+    file.text().then(txt => {
+      try {
+        if (applyStatePayload(JSON.parse(txt))) showToast("⬆ System imported");
+        else showToast("⚠️ Not a valid Orbital save");
+      } catch { showToast("⚠️ Not a valid Orbital save"); }
+    });
+  });
 
   // Lightweight transient toast (reuses styling defined in styles.css).
   let toastTimer: number | null = null;
@@ -1917,6 +2428,56 @@
     followSuspended = false;  // re-enable following when a focus is chosen
   });
 
+  // ------------------------- Body editor ---------------------------
+  // Live multipliers applied to the currently selected body. The baseline
+  // (and the slider positions) rebase whenever the selection changes, so each
+  // slider always reads "× the value it had when you selected this body".
+  const eMass = $<HTMLInputElement>("e_mass");
+  const eRadius = $<HTMLInputElement>("e_radius");
+  const eSpeed = $<HTMLInputElement>("e_speed");
+  const vEMass = $("v_emass"), vERadius = $("v_eradius"), vESpeed = $("v_espeed");
+  let editId: number | null = null;
+  let editBase = { mass: 1, radius: 1, speed: 0 };
+  function syncEditor(): void {
+    if (editId === selected) return;
+    editId = selected;
+    const b = bodyById(selected);
+    for (const el of [eMass, eRadius, eSpeed]) el.disabled = !b;
+    eMass.value = "0"; eRadius.value = "100"; eSpeed.value = "100";
+    const neutral = b ? "×1.00" : "—";
+    vEMass.textContent = vERadius.textContent = vESpeed.textContent = neutral;
+    if (b) {
+      const p = b.parent !== null ? bodyById(b.parent) : undefined;
+      const rvx = b.vx - (p ? p.vx : 0), rvy = b.vy - (p ? p.vy : 0);
+      editBase = { mass: b.mass, radius: b.radius, speed: Math.hypot(rvx, rvy) };
+    }
+  }
+  eMass.addEventListener("input", () => {
+    const b = bodyById(selected); if (!b) return;
+    const k = Math.pow(10, +eMass.value / 10);          // ×0.1 … ×10, log scale
+    b.mass = editBase.mass * k;
+    vEMass.textContent = "×" + (k >= 3 ? k.toFixed(1) : k.toFixed(2));
+    baselineEnergy();                                    // mass edits change E legitimately
+  });
+  eRadius.addEventListener("input", () => {
+    const b = bodyById(selected); if (!b) return;
+    const k = +eRadius.value / 100;
+    b.radius = editBase.radius * k;
+    vERadius.textContent = "×" + k.toFixed(2);
+  });
+  eSpeed.addEventListener("input", () => {
+    const b = bodyById(selected); if (!b) return;
+    const k = +eSpeed.value / 100;
+    const p = b.parent !== null ? bodyById(b.parent) : undefined;
+    const pvx = p ? p.vx : 0, pvy = p ? p.vy : 0;
+    const rvx = b.vx - pvx, rvy = b.vy - pvy;
+    const cur = Math.hypot(rvx, rvy);
+    const target = editBase.speed * k;                   // keep direction, scale magnitude
+    if (cur > 1e-9) { b.vx = pvx + (rvx / cur) * target; b.vy = pvy + (rvy / cur) * target; }
+    vESpeed.textContent = "×" + k.toFixed(2);
+    baselineEnergy();
+  });
+
   // Menu starts folded (class set in markup). ☰ unfolds, × folds, and a
   // pointer-press anywhere outside the menu auto-folds it.
   $("toggleDash").addEventListener("click", () => $("dash").classList.remove("collapsed"));
@@ -1933,19 +2494,33 @@
     // (activate the control) — otherwise it would both pause AND re-trigger it.
     const tag = (e.target as HTMLElement | null)?.tagName;
     const onControl = tag === "BUTTON" || tag === "SELECT" || tag === "INPUT";
+    // Arrows/WASD only clash with fields whose value they'd change — a focused
+    // button (e.g. the just-clicked Mission button) shouldn't block thrusters.
+    const onField = tag === "SELECT" || tag === "INPUT";
+    if (missionOn && !onField) {            // mission thrusters
+      const k = e.key;
+      if (k === "ArrowUp" || k === "w") { e.preventDefault(); missionThrust("pro"); }
+      else if (k === "ArrowDown" || k === "s") { e.preventDefault(); missionThrust("retro"); }
+      else if (k === "ArrowLeft" || k === "a") { e.preventDefault(); missionThrust("left"); }
+      else if (k === "ArrowRight" || k === "d") { e.preventDefault(); missionThrust("right"); }
+    }
     if (e.key === "h") $("dash").classList.toggle("collapsed");
     if (e.key === "0") { viewSpin = 0; viewTilt = DEFAULT_TILT; }  // reset view
     if (e.key === " " && !onControl) { e.preventDefault(); pauseBtn.click(); }
     if (e.key === "z" || e.key === "Z") undoLast();
-    if (e.key === "Escape") { if (launchMode) setLaunchMode(false); if (addStarMode) setAddStarMode(false); }
+    if (e.key === "Escape") {
+      if (launchMode) setLaunchMode(false);
+      if (addStarMode) setAddStarMode(false);
+      if (addHoleMode) setAddHoleMode(false);
+    }
   });
 
   // ----------------------------- Mouse -----------------------------
   canvas.addEventListener("mousedown", e => {
     // Left-press in an aim mode (launch/star) begins aiming a new body. A plain
     // click (no drag) drops it at rest; dragging sets its velocity.
-    if ((launchMode || addStarMode) && e.button === 0) {
-      aimKind = launchMode ? "launch" : "star";
+    if ((launchMode || addStarMode || addHoleMode) && e.button === 0) {
+      aimKind = launchMode ? "launch" : addStarMode ? "star" : "hole";
       launchStartW = screenToWorld(e.clientX, e.clientY);
       launchCurS = [e.clientX, e.clientY];
       panLast = null; panning = false;
@@ -1959,7 +2534,8 @@
     if (aimKind !== "none" && launchStartW && e.button === 0) {
       const p1 = screenToWorld(e.clientX, e.clientY);
       if (aimKind === "launch") launchBody(launchStartW, p1);
-      else placeStar(launchStartW, p1);
+      else if (aimKind === "star") placeStar(launchStartW, p1);
+      else placeHole(launchStartW, p1);
       aimKind = "none"; launchStartW = null; launchCurS = null;
       return;
     }
@@ -2003,8 +2579,7 @@
   canvas.addEventListener("wheel", e => {
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.12 : 0.89;
-    const z = Math.max(0.2, Math.min(4, ZOOM * factor));
-    setZoom(z);
+    zoomAt(ZOOM * factor, e.clientX, e.clientY);
   }, { passive: false });
 
   function setZoom(z: number): void {
@@ -2012,6 +2587,18 @@
     const s = $<HTMLInputElement>("s_zoom");
     s.value = String(Math.round(ZOOM * 100));
     s.dispatchEvent(new Event("input"));
+  }
+
+  // Zoom keeping the world point under (sx, sy) fixed — except while the camera
+  // is actively following a body, where keeping the body centered feels better.
+  function zoomAt(z: number, sx: number, sy: number): void {
+    const following = !followSuspended && !!bodyById(cam.focus);
+    const before = screenToWorld(sx, sy);
+    setZoom(z);
+    if (following) return;
+    const after = screenToWorld(sx, sy);
+    cam.x += before[0] - after[0];
+    cam.y += before[1] - after[1];
   }
 
   // ----------------------------- Touch -----------------------------
@@ -2036,9 +2623,9 @@
       const x = e.touches[0].clientX, y = e.touches[0].clientY;
       // Armed launch/star mode: the finger aims exactly like the mouse does —
       // drag sets the velocity, a plain tap drops the body at rest.
-      if (launchMode || addStarMode) {
+      if (launchMode || addStarMode || addHoleMode) {
         touchMode = "aim";
-        aimKind = launchMode ? "launch" : "star";
+        aimKind = launchMode ? "launch" : addStarMode ? "star" : "hole";
         launchStartW = screenToWorld(x, y);
         launchCurS = [x, y];
         touchLast = [x, y]; tapStart = null; touchMoved = false;
@@ -2080,7 +2667,7 @@
       touchLast = [x, y];
     } else if (touchMode === "gesture" && e.touches.length >= 2) {
       const mid = midpoint(e.touches), dist = spread(e.touches);
-      if (pinchDist > 0) setZoom(ZOOM * (dist / pinchDist));
+      if (pinchDist > 0) zoomAt(ZOOM * (dist / pinchDist), mid[0], mid[1]);
       pinchDist = dist;
       const dmx = mid[0] - last[0], dmy = mid[1] - last[1];
       viewSpin += dmx * 0.005;
@@ -2093,7 +2680,8 @@
     if (touchMode === "aim" && aimKind !== "none" && launchStartW && launchCurS) {
       const p1 = screenToWorld(launchCurS[0], launchCurS[1]);
       if (aimKind === "launch") launchBody(launchStartW, p1);
-      else placeStar(launchStartW, p1);
+      else if (aimKind === "star") placeStar(launchStartW, p1);
+      else placeHole(launchStartW, p1);
       aimKind = "none"; launchStartW = null; launchCurS = null;
     } else if (touchMode === "pan" && !touchMoved && tapStart) {
       pickBody(tapStart[0], tapStart[1]);

@@ -73,13 +73,35 @@ const BODY = `
         <label class="switch"><input type="checkbox" id="t_hz"><span class="slider-sw"></span></label></div>
       <div class="toggle-row"><label for="t_axes">Spin axes</label>
         <label class="switch"><input type="checkbox" id="t_axes"><span class="slider-sw"></span></label></div>
+      <div class="toggle-row"><label for="t_lagrange">Lagrange pts</label>
+        <label class="switch"><input type="checkbox" id="t_lagrange"><span class="slider-sw"></span></label></div>
+      <div class="toggle-row"><label for="t_kepler">Kepler areas</label>
+        <label class="switch"><input type="checkbox" id="t_kepler"><span class="slider-sw"></span></label></div>
+      <div class="toggle-row"><label for="t_sfx">Sound FX</label>
+        <label class="switch"><input type="checkbox" id="t_sfx" checked><span class="slider-sw"></span></label></div>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-label">Edit selected body</div>
+    <div class="ctrl">
+      <div class="ctrl-head"><label>Mass</label><span class="val" id="v_emass">×1.00</span></div>
+      <input type="range" id="e_mass" min="-10" max="10" value="0">
+    </div>
+    <div class="ctrl">
+      <div class="ctrl-head"><label>Radius</label><span class="val" id="v_eradius">×1.00</span></div>
+      <input type="range" id="e_radius" min="40" max="300" value="100">
+    </div>
+    <div class="ctrl">
+      <div class="ctrl-head"><label>Speed</label><span class="val" id="v_espeed">×1.00</span></div>
+      <input type="range" id="e_speed" min="0" max="200" value="100">
     </div>
   </div>
 
   <div class="group">
     <div class="group-label">Focus body</div>
     <select class="sel" id="sel_focus"></select>
-    <div class="hint">Drag to pan · Scroll to zoom · Click a body to focus &middot; <b>Right-click a body to delete it</b> &middot; <b>Both buttons drag to tilt/spin</b> &middot; Press <b>0</b> to reset view, <b>z</b> to undo.<br><b>☀️ Add star:</b> arm it, then click to drop a star (or drag to fling a fly-by) and watch the system deform.<br><b>Touch:</b> drag to pan &middot; pinch to zoom &middot; two fingers to tilt/spin &middot; tap to focus &middot; when 🎯/☀️ is armed, drag to aim (tap = drop at rest).</div>
+    <div class="hint">Drag to pan · Scroll to zoom (at the cursor) · Click a body to focus &middot; <b>Right-click a body to delete it</b> &middot; <b>Both buttons drag to tilt/spin</b> &middot; Press <b>0</b> to reset view, <b>z</b> to undo.<br><b>☀️ Add star / 🕳️ Black hole:</b> arm it, then click to drop (or drag to fling a fly-by) and watch the system deform.<br><b>🚀 Mission:</b> steer the probe with ←↑↓→ / WASD (prograde, retrograde, lateral) — reach the target before the fuel runs out.<br><b>Touch:</b> drag to pan &middot; pinch to zoom &middot; two fingers to tilt/spin &middot; tap to focus &middot; when 🎯/☀️/🕳️ is armed, drag to aim (tap = drop at rest).</div>
   </div>
 
   <div class="group">
@@ -102,7 +124,14 @@ const BODY = `
       <button class="b" id="b_addstar">☀️ Add star</button>
     </div>
     <div class="btn-row" style="margin-top:6px;">
+      <button class="b" id="b_hole">🕳️ Black hole</button>
+      <button class="b" id="b_rewind">⏪ Rewind</button>
+    </div>
+    <div class="btn-row" style="margin-top:6px;">
+      <button class="b" id="b_mission">🚀 Mission</button>
       <button class="b" id="b_undo">↶ Undo</button>
+    </div>
+    <div class="btn-row" style="margin-top:6px;">
       <button class="b" id="b_music">🎵 Ambience</button>
       <button class="b" id="b_share">🔗 Share</button>
     </div>
@@ -117,6 +146,22 @@ const BODY = `
     </select>
   </div>
 
+  <div class="group">
+    <div class="group-label">Saves</div>
+    <select class="sel" id="sel_slot">
+      <option value="1">Slot 1</option>
+      <option value="2">Slot 2</option>
+      <option value="3">Slot 3</option>
+    </select>
+    <div class="btn-row" style="margin-top:6px;">
+      <button class="b" id="b_save">💾 Save</button>
+      <button class="b" id="b_load">📂 Load</button>
+      <button class="b" id="b_export">⬇ Export</button>
+      <button class="b" id="b_import">⬆ Import</button>
+    </div>
+    <input type="file" id="f_import" accept=".json,application/json" style="display:none">
+  </div>
+
   <div class="credit">An interactive N-body sandbox.</div>
 </div>
 <button id="toggleDash">☰</button>
@@ -124,6 +169,7 @@ const BODY = `
 <div id="buildinfo">Generated from TypeScript · vanilla JS + Canvas<br>Compiled __BUILT_AT__</div>
 <div id="readout"></div>
 <div id="dayclock"></div>
+<div id="mission"></div>
 <div id="tip"></div>
 <div id="toast"></div>`;
 
