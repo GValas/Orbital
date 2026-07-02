@@ -79,7 +79,7 @@ const BODY = `
   <div class="group">
     <div class="group-label">Focus body</div>
     <select class="sel" id="sel_focus"></select>
-    <div class="hint">Drag to pan · Scroll to zoom · Click a body to focus &middot; <b>Right-click a body to delete it</b> &middot; <b>Both buttons drag to tilt/spin</b> &middot; Press <b>0</b> to reset view, <b>z</b> to undo.<br><b>☀️ Add star:</b> arm it, then click to drop a star (or drag to fling a fly-by) and watch the system deform.<br><b>Touch:</b> drag to pan &middot; pinch to zoom &middot; two fingers to tilt/spin &middot; tap to focus.</div>
+    <div class="hint">Drag to pan · Scroll to zoom · Click a body to focus &middot; <b>Right-click a body to delete it</b> &middot; <b>Both buttons drag to tilt/spin</b> &middot; Press <b>0</b> to reset view, <b>z</b> to undo.<br><b>☀️ Add star:</b> arm it, then click to drop a star (or drag to fling a fly-by) and watch the system deform.<br><b>Touch:</b> drag to pan &middot; pinch to zoom &middot; two fingers to tilt/spin &middot; tap to focus &middot; when 🎯/☀️ is armed, drag to aim (tap = drop at rest).</div>
   </div>
 
   <div class="group">

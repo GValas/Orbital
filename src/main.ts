@@ -102,6 +102,7 @@
       x: 0, y: 0, vx: 0, vy: 0, trail: [], extra: false,
     }));
     nextId = bodies.length;  // ids 0..n-1 are taken by the DEFS rows
+    addedStack.length = 0;   // old-world ids could collide with the fresh ones
     // Place each body on an (optionally eccentric) orbit about its parent.
     // distAU is the semi-major axis a; we start every body at perihelion.
     for (const b of bodies) {
@@ -150,6 +151,7 @@
     bodies = [];
     nextId = 0;
     flashes.length = 0;
+    addedStack.length = 0;   // old-world ids could collide with the fresh ones
     const sun: Body = {
       i: nextId++, name: "Sun", color: "#ffcf4d", distAU: 0,
       radius: 22 + Math.random() * 8, mass: 333000, parent: null, isMoon: false, ecc: 0,
@@ -456,8 +458,11 @@
     survivor.vy = (A.mass * A.vy + B.mass * B.vy) / m;
     survivor.radius = Math.cbrt(A.radius ** 3 + B.radius ** 3);  // volume-preserving
     survivor.mass = m;
+    // If the survivor orbited the body it absorbed (a moon out-massing its
+    // planet), it takes over that body's orbit slot — never itself as parent.
+    if (survivor.parent === gone.i) { survivor.parent = gone.parent; survivor.isMoon = gone.isMoon; }
     // Moons of the absorbed body are inherited by the survivor.
-    for (const x of bodies) if (x.parent === gone.i) x.parent = survivor.i;
+    for (const x of bodies) if (x !== survivor && x.parent === gone.i) x.parent = survivor.i;
     bodies.splice(bodies.indexOf(gone), 1);
     if (cam.focus === gone.i) cam.focus = survivor.i;
     if (selected === gone.i) selected = survivor.i;
@@ -674,6 +679,15 @@
   }
 
   const isComet = (b: Body): boolean => b.extra && b.name.startsWith("Comet");
+  // On-screen radius of a body's disk — the single source of truth shared by
+  // the renderer and by hit-testing (click / hover / delete), so picking stays
+  // accurate at any zoom and in Real-scale mode.
+  function screenRadius(b: Body): number {
+    const rad = REAL_SCALE
+      ? Math.max(1.4, Math.cbrt(b.mass) * 0.6 * ZOOM * 0.1)
+      : b.radius * Math.sqrt(ZOOM);
+    return Math.min(rad, 70);
+  }
   // The original Sun (id 0) plus any runtime-dropped stars: drawn self-lit with
   // a glow, with no night-side terminator.
   const isStarBody = (b: Body): boolean => b.i === 0 || !!b.isStar;
@@ -973,10 +987,7 @@
       : bodies;
     for (const b of order) {
       const [sx, sy] = worldToScreen(b.x, b.y);
-      let rad = REAL_SCALE
-        ? Math.max(1.4, Math.cbrt(b.mass) * 0.6 * ZOOM * 0.1)
-        : b.radius * Math.sqrt(ZOOM);
-      rad = Math.min(rad, 70);
+      const rad = screenRadius(b);
 
       if (b.i === 0) {
         const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, rad * 4.5);
@@ -1225,8 +1236,9 @@
     if (data && data.moons !== undefined) html += row("Moons", `${moons} sim · ${data.moons} real`);
     else if (moons > 0) html += row("Moons", String(moons));
 
-    if (f.i !== 0) {
-      html += row("To Sun", `${(Math.hypot(f.x - sun.x, f.y - sun.y) / AU).toFixed(2)} AU`);
+    if (sun && f.i !== sun.i) {
+      const label = sun.i === 0 ? "To Sun" : `To ${sun.name}`;
+      html += row(label, `${(Math.hypot(f.x - sun.x, f.y - sun.y) / AU).toFixed(2)} AU`);
     }
     if (f.parent !== null && f.parent !== 0) {
       const p = bodyById(f.parent);
@@ -1408,6 +1420,9 @@
     resetControls();
     flashes.length = 0;
     cam.focus = 0; selected = 0; simTime = 0;
+    // Drop any share-state hash so a reload after Reset boots the defaults,
+    // not the previously shared system.
+    if (location.hash) history.replaceState(null, "", location.pathname + location.search);
     makeBodies();
     buildFocusList();
   }
@@ -1433,18 +1448,22 @@
   });
   let cometN = 0;
   $("b_comet").addEventListener("click", () => {
+    // Aim at the actual central star (which may have drifted off the origin,
+    // or not be id 0 anymore after mergers) instead of the world origin.
+    const sun = bodyById(0) ?? bodies.find(isStarBody) ?? bodies[0];
+    if (!sun) return;
     cometN++;
     const ang = Math.random() * Math.PI * 2;
     const r = 5.5 * AU;
-    const x = Math.cos(ang) * r, y = Math.sin(ang) * r;
-    const toSun = Math.atan2(-y, -x) + (Math.random() - 0.5) * 0.8;
-    const mu = BASE_G * bodies[0].mass * SUN_SCALE;
+    const x = sun.x + Math.cos(ang) * r, y = sun.y + Math.sin(ang) * r;
+    const toSun = Math.atan2(sun.y - y, sun.x - x) + (Math.random() - 0.5) * 0.8;
+    const mu = BASE_G * massOf(sun);
     const v = Math.sqrt(mu / r) * 1.05 * Math.sqrt(Math.max(0.2, GRAV_SCALE));
     const id = nextId++;
     bodies.push({
       i: id, name: "Comet " + cometN, color: "#9fe8ff",
-      distAU: 5.5, radius: 2.2, mass: 0.0001, parent: 0, isMoon: false, ecc: 0,
-      x, y, vx: Math.cos(toSun) * v, vy: Math.sin(toSun) * v, trail: [], extra: true,
+      distAU: 5.5, radius: 2.2, mass: 0.0001, parent: sun.i, isMoon: false, ecc: 0,
+      x, y, vx: sun.vx + Math.cos(toSun) * v, vy: sun.vy + Math.sin(toSun) * v, trail: [], extra: true,
     });
     recordAdded(id);
     buildFocusList();
@@ -1565,11 +1584,13 @@
   function presetTrappist(): void {
     clearWorld();
     const star = mkStar(0, 0, 0, 0, 333000 * 0.09, "#ff6b4d", "TRAPPIST-1");
+    // Colors must be 6-digit hex — the renderer appends an alpha channel
+    // (e.g. color + "44"), which is invalid on 3-digit shorthand.
     const planets: [number, number, string, string][] = [
-      [0.30, 4.6, "#c99", "TRAPPIST-1 b"], [0.40, 4.4, "#cb8", "TRAPPIST-1 c"],
-      [0.52, 4.2, "#9cf", "TRAPPIST-1 d"], [0.66, 4.6, "#6fb1ff", "TRAPPIST-1 e"],
-      [0.80, 4.8, "#8fd", "TRAPPIST-1 f"], [0.96, 4.6, "#7ec", "TRAPPIST-1 g"],
-      [1.14, 4.0, "#acd", "TRAPPIST-1 h"],
+      [0.30, 4.6, "#cc9999", "TRAPPIST-1 b"], [0.40, 4.4, "#ccbb88", "TRAPPIST-1 c"],
+      [0.52, 4.2, "#99ccff", "TRAPPIST-1 d"], [0.66, 4.6, "#6fb1ff", "TRAPPIST-1 e"],
+      [0.80, 4.8, "#88ffdd", "TRAPPIST-1 f"], [0.96, 4.6, "#77eecc", "TRAPPIST-1 g"],
+      [1.14, 4.0, "#aaccdd", "TRAPPIST-1 h"],
     ];
     for (const [R, rad, col, nm] of planets) {
       bodies.push(spawnOrbiter(star, R, rad, 0.6 + Math.random() * 0.6, col, nm, false, 0.01));
@@ -1693,6 +1714,7 @@
   let musicOn = false;
   let musicGain: GainNode | null = null;
   let voices: AudioScheduledSourceNode[] = [];
+  let musicNodes: AudioNode[] = [];   // graph nodes to disconnect on stop
   let noteTimer: number | null = null;
 
   function buildReverb(ctx: AudioContext): ConvolverNode {
@@ -1720,6 +1742,7 @@
     const dry = ctx.createGain(); dry.gain.value = 0.5;
     musicGain.connect(dry).connect(ctx.destination);
     musicGain.connect(reverb); reverb.connect(wet); wet.connect(ctx.destination);
+    musicNodes = [musicGain, dry, reverb, wet];
     musicGain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 5);   // slow swell in
 
     // Drone: root + fifth + octave, detuned, through a slowly swept low-pass.
@@ -1768,7 +1791,13 @@
     musicGain.gain.setValueAtTime(musicGain.gain.value, ctx.currentTime);
     musicGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1.5);   // fade out
     const dying = voices; voices = [];
-    window.setTimeout(() => { for (const v of dying) { try { v.stop(); } catch { /* already stopped */ } } }, 1700);
+    const graph = musicNodes; musicNodes = [];
+    window.setTimeout(() => {
+      for (const v of dying) { try { v.stop(); } catch { /* already stopped */ } }
+      // Tear the graph down so repeated on/off toggles don't pile up reverbs
+      // and filters that stay connected to the destination forever.
+      for (const n of graph) { try { n.disconnect(); } catch { /* detached */ } }
+    }, 1700);
   }
 
   const musicBtn = $<HTMLButtonElement>("b_music");
@@ -1806,7 +1835,7 @@
         b.i, b.name, b.color, +b.distAU.toFixed(3), +b.radius.toFixed(2), b.mass,
         b.parent, b.isMoon ? 1 : 0, b.extra ? 1 : 0,
         +b.x.toFixed(2), +b.y.toFixed(2), +b.vx.toFixed(3), +b.vy.toFixed(3),
-        b.isStar ? 1 : 0,
+        b.isStar ? 1 : 0, +b.ecc.toFixed(3),
       ]),
     };
     const code = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
@@ -1830,11 +1859,12 @@
       if (!p || p.v !== 1 || !Array.isArray(p.b)) return false;
       bodies = p.b.map((r: any[]): Body => ({
         i: r[0], name: r[1], color: r[2], distAU: r[3], radius: r[4], mass: r[5],
-        parent: r[6], isMoon: !!r[7], extra: !!r[8], ecc: 0,
+        parent: r[6], isMoon: !!r[7], extra: !!r[8], ecc: r[14] ?? 0,
         x: r[9], y: r[10], vx: r[11], vy: r[12], trail: [],
         isStar: !!r[13],
       }));
       nextId = bodies.reduce((mx, b) => Math.max(mx, b.i), -1) + 1;
+      addedStack.length = 0;   // stale ids from the previous world could collide
       setRange("s_speed", Math.round(p.sc[0] * 100));
       setRange("s_grav", Math.round(p.sc[1] * 100));
       setRange("s_sun", Math.round(p.sc[2] * 100));
@@ -1899,9 +1929,13 @@
     dash.classList.add("collapsed");
   });
   document.addEventListener("keydown", e => {
+    // With a button/select/slider focused, Space must keep its native meaning
+    // (activate the control) — otherwise it would both pause AND re-trigger it.
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    const onControl = tag === "BUTTON" || tag === "SELECT" || tag === "INPUT";
     if (e.key === "h") $("dash").classList.toggle("collapsed");
     if (e.key === "0") { viewSpin = 0; viewTilt = DEFAULT_TILT; }  // reset view
-    if (e.key === " ") { e.preventDefault(); pauseBtn.click(); }
+    if (e.key === " " && !onControl) { e.preventDefault(); pauseBtn.click(); }
     if (e.key === "z" || e.key === "Z") undoLast();
     if (e.key === "Escape") { if (launchMode) setLaunchMode(false); if (addStarMode) setAddStarMode(false); }
   });
@@ -1922,7 +1956,7 @@
   // Keep the right mouse button usable for rotation instead of a context menu.
   canvas.addEventListener("contextmenu", e => e.preventDefault());
   window.addEventListener("mouseup", e => {
-    if (aimKind !== "none" && launchStartW) {
+    if (aimKind !== "none" && launchStartW && e.button === 0) {
       const p1 = screenToWorld(e.clientX, e.clientY);
       if (aimKind === "launch") launchBody(launchStartW, p1);
       else placeStar(launchStartW, p1);
@@ -1981,9 +2015,9 @@
   }
 
   // ----------------------------- Touch -----------------------------
-  // 1 finger  → pan (tap = focus a body)
+  // 1 finger  → pan (tap = focus a body); in an armed aim mode → drag to aim
   // 2 fingers → pinch to zoom + drag to tilt (vertical) / spin (horizontal)
-  let touchMode: "none" | "pan" | "gesture" = "none";
+  let touchMode: "none" | "pan" | "gesture" | "aim" = "none";
   let touchLast: Vec2 | null = null;   // last finger / two-finger midpoint
   let tapStart: Vec2 | null = null;
   let touchMoved = false;
@@ -1999,10 +2033,24 @@
   canvas.addEventListener("touchstart", e => {
     e.preventDefault();
     if (e.touches.length === 1) {
+      const x = e.touches[0].clientX, y = e.touches[0].clientY;
+      // Armed launch/star mode: the finger aims exactly like the mouse does —
+      // drag sets the velocity, a plain tap drops the body at rest.
+      if (launchMode || addStarMode) {
+        touchMode = "aim";
+        aimKind = launchMode ? "launch" : "star";
+        launchStartW = screenToWorld(x, y);
+        launchCurS = [x, y];
+        touchLast = [x, y]; tapStart = null; touchMoved = false;
+        return;
+      }
       touchMode = "pan"; touchMoved = false;
-      touchLast = [e.touches[0].clientX, e.touches[0].clientY];
+      touchLast = [x, y];
       tapStart = touchLast;
     } else if (e.touches.length >= 2) {
+      if (touchMode === "aim") {           // second finger cancels the aim
+        aimKind = "none"; launchStartW = null; launchCurS = null;
+      }
       touchMode = "gesture"; touchMoved = true;
       touchLast = midpoint(e.touches);
       pinchDist = spread(e.touches);
@@ -2011,6 +2059,10 @@
 
   canvas.addEventListener("touchmove", e => {
     e.preventDefault();
+    if (touchMode === "aim" && e.touches.length === 1 && aimKind !== "none") {
+      launchCurS = [e.touches[0].clientX, e.touches[0].clientY];
+      return;
+    }
     const last = touchLast;
     if (!last) return;
 
@@ -2038,9 +2090,13 @@
   }, { passive: false });
 
   canvas.addEventListener("touchend", e => {
-    if (touchMode === "pan" && !touchMoved && tapStart) {
-      if (addStarMode) placeStar(screenToWorld(tapStart[0], tapStart[1]));
-      else pickBody(tapStart[0], tapStart[1]);
+    if (touchMode === "aim" && aimKind !== "none" && launchStartW && launchCurS) {
+      const p1 = screenToWorld(launchCurS[0], launchCurS[1]);
+      if (aimKind === "launch") launchBody(launchStartW, p1);
+      else placeStar(launchStartW, p1);
+      aimKind = "none"; launchStartW = null; launchCurS = null;
+    } else if (touchMode === "pan" && !touchMoved && tapStart) {
+      pickBody(tapStart[0], tapStart[1]);
     }
     if (e.touches.length === 0) { touchMode = "none"; touchLast = null; }
     else if (e.touches.length === 1) {
@@ -2056,7 +2112,7 @@
     for (const b of bodies) {
       const [bx, by] = worldToScreen(b.x, b.y);
       const d = Math.hypot(bx - sx, by - sy);
-      const rad = (REAL_SCALE ? 6 : b.radius) + 8;
+      const rad = screenRadius(b) + 8;
       if (d < Math.max(bestD, rad)) { bestD = d; best = b.i; }
     }
     selected = best;   // best === -1 when the click missed every body: hides the card
@@ -2081,7 +2137,7 @@
     for (const b of bodies) {
       const [bx, by] = worldToScreen(b.x, b.y);
       const d = Math.hypot(bx - sx, by - sy);
-      const rad = (REAL_SCALE ? 6 : b.radius) + 8;
+      const rad = screenRadius(b) + 8;
       if (d < Math.max(bestD, rad)) { bestD = d; best = b; }
     }
     if (best) { const n = best.name; removeBody(best); showToast("✕ Removed " + n); }
@@ -2101,7 +2157,7 @@
     let found: Body | null = null;
     for (const b of bodies) {
       const [bx, by] = worldToScreen(b.x, b.y);
-      const rad = (REAL_SCALE ? 6 : b.radius) + 7;
+      const rad = screenRadius(b) + 7;
       if (Math.hypot(bx - sx, by - sy) < Math.max(10, rad)) { found = b; break; }
     }
     if (found) {
